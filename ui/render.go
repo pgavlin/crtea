@@ -898,11 +898,7 @@ func (a *App) renderCommentLine(ann annotatedLine, width int, isCursor, isFileLe
 		return truncateOrPad(line, width)
 	}
 
-	if isLast && ann.CommentLine > 0 {
-		if ann.HasReplyAfter {
-			// No bottom border — next comment continues the thread
-			return ""
-		}
+	if isLast && ann.CommentLine > 0 && !ann.HasReplyAfter {
 		// Bottom border
 		line := gutter + borderStyle.Render("╰"+strings.Repeat("─", boxWidth-2)+"╯")
 		return truncateOrPad(line, width)

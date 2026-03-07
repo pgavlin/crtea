@@ -195,7 +195,11 @@ func buildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 									}
 								}
 								total := commentDisplayLines(&comments[ci], commentWrapWidth)
-								for cl := range total {
+								displayTotal := total
+								if hasReplyAfter {
+									displayTotal = total - 1 // skip bottom border; next reply continues the box
+								}
+								for cl := range displayTotal {
 									annotations = append(annotations, annotatedLine{
 										Type:          annLineComment,
 										FileIdx:       fi,
@@ -205,7 +209,7 @@ func buildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 										NewLineNo:     line.NewLineNo,
 										CommentIdx:    ci,
 										CommentLine:   cl,
-										CommentLines:  total,
+										CommentLines:  displayTotal,
 										Side:          side,
 										IsReply:       isReply,
 										HasReplyAfter: hasReplyAfter,
