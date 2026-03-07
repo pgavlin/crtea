@@ -155,6 +155,12 @@ type App struct {
 	dirty      bool
 	quitWarned bool
 
+	// Help screen
+	helpScroll int
+
+	// Search highlighting
+	searchHighlight string // last successful search pattern (for highlighting matches)
+
 	// Pending key sequences
 	pendingCount  string // digit accumulator for {N}G
 	pendingPrefix rune   // for pending key sequences like d, z, ;
@@ -373,6 +379,9 @@ func (a App) View() tea.View {
 		if a.showFileList {
 			fileListWidth := a.fileListWidth()
 			diffWidth := a.width - fileListWidth - 1
+			if diffWidth < 1 {
+				diffWidth = 1
+			}
 			fileList := a.renderFileList(fileListWidth, contentHeight)
 			diffView := a.renderDiffView(diffWidth, contentHeight)
 			b.WriteString(joinHorizontal(fileList, diffView, contentHeight))
@@ -394,6 +403,9 @@ func (a App) View() tea.View {
 		if a.showFileList {
 			fileListWidth := a.fileListWidth()
 			diffWidth := a.width - fileListWidth - 1
+			if diffWidth < 1 {
+				diffWidth = 1
+			}
 			fileList := a.renderFileList(fileListWidth, contentHeight)
 			diffView := a.renderDiffView(diffWidth, contentHeight)
 			b.WriteString(joinHorizontal(fileList, diffView, contentHeight))
@@ -407,6 +419,9 @@ func (a App) View() tea.View {
 	} else if a.showFileList {
 		fileListWidth := a.fileListWidth()
 		diffWidth := a.width - fileListWidth - 1 // -1 for separator
+		if diffWidth < 1 {
+			diffWidth = 1
+		}
 		fileList := a.renderFileList(fileListWidth, contentHeight)
 		diffView := a.renderDiffView(diffWidth, contentHeight)
 		b.WriteString(joinHorizontal(fileList, diffView, contentHeight))

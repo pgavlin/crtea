@@ -617,8 +617,12 @@ func (a *App) renderDiffView(width, height int) string {
 	}
 
 	// Pad remaining lines
+	padWidth := width - 1
+	if padWidth < 0 {
+		padWidth = 0
+	}
 	for len(lines) < vpHeight {
-		lines = append(lines, lipgloss.NewStyle().Foreground(th.FgDim).Render("~"+strings.Repeat(" ", width-1)))
+		lines = append(lines, lipgloss.NewStyle().Foreground(th.FgDim).Render("~"+strings.Repeat(" ", padWidth)))
 	}
 
 	return strings.Join(lines, "\n")
@@ -655,6 +659,9 @@ func (a *App) isVisualSelected(idx int) bool {
 }
 
 func (a *App) renderAnnotatedLine(ann annotatedLine, width int, isCursor, isVisualSelected bool) string {
+	if width < 0 {
+		width = 0
+	}
 	th := a.theme
 
 	switch ann.Type {
@@ -713,6 +720,9 @@ func (a *App) renderAnnotatedLine(ann annotatedLine, width int, isCursor, isVisu
 		return style.Render(truncateOrPad(" Binary file", width))
 
 	case annSpacing:
+		if width < 0 {
+			width = 0
+		}
 		return strings.Repeat(" ", width)
 
 	default:
