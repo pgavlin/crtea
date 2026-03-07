@@ -15,6 +15,10 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Clear message on any keypress
 	a.clearMessage()
 
+	if a.phase == PhasePicker {
+		return a.handlePickerKey(msg)
+	}
+
 	switch a.inputMode {
 	case ModeHelp:
 		return a.handleHelpKey(msg)

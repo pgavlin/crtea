@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"fmt"
+	"io"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/pgavlin/crtea/model"
+	"github.com/pgavlin/crtea/output"
 	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
@@ -56,6 +59,12 @@ type App struct {
 	session     *model.ReviewSession
 	diffFiles   []model.DiffFile
 	highlighter *syntax.Highlighter
+
+	// Phase
+	phase          AppPhase
+	pickerItems    []PickerItem
+	pickerCursor   int
+	pickerSelected map[int]bool
 
 	// UI state
 	inputMode    InputMode
@@ -134,6 +143,30 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 	return app
 }
 
+// NewPickerApp creates an App that starts in the commit picker phase.
+func NewPickerApp(backend vcs.Backend, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
+	commits, _ := backend.GetRecentCommits(0, 30)
+
+	var items []PickerItem
+	items = append(items, PickerItem{IsWorkingTree: true})
+	for _, c := range commits {
+		items = append(items, PickerItem{Commit: c})
+	}
+
+	return App{
+		vcs:            backend,
+		vcsInfo:        backend.Info(),
+		highlighter:    hl,
+		store:          store,
+		theme:          th,
+		phase:          PhasePicker,
+		pickerItems:    items,
+		pickerSelected: make(map[int]bool),
+		expandedGaps:   make(map[GapID][]model.DiffLine),
+		collapsedDirs:  make(map[string]bool),
+	}
+}
+
 func (a *App) rebuildFileTree() {
 	a.fileTree = buildFileTree(a.diffFiles)
 	a.fileTreeRows = flattenTree(a.fileTree, a.collapsedDirs)
@@ -180,6 +213,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a App) View() tea.View {
 	if a.width == 0 || a.height == 0 {
 		return tea.NewView("")
+	}
+
+	if a.phase == PhasePicker {
+		return tea.NewView(a.renderPicker())
 	}
 
 	var b strings.Builder
@@ -257,4 +294,11 @@ func (a *App) setMessage(text string, level MessageLevel) {
 // clearMessage clears the status message.
 func (a *App) clearMessage() {
 	a.message = nil
+}
+
+// ExportMarkdown writes the session's comments as markdown to the given writer.
+func (a *App) ExportMarkdown(w io.Writer) {
+	if a.session != nil && a.session.TotalComments() > 0 {
+		fmt.Fprint(w, output.GenerateMarkdown(a.session))
+	}
 }

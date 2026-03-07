@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/pgavlin/crtea/model"
-	"github.com/pgavlin/crtea/output"
 	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
@@ -34,42 +33,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	info := backend.Info()
-
-	var files []model.DiffFile
-	diffSource := model.DiffWorkingTree
-
-	if *revisions != "" {
-		diffSource = model.DiffCommitRange
-		files, err = backend.GetRevisionDiff(*revisions)
-	} else {
-		files, err = backend.GetWorkingTreeDiff()
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting diff: %v\n", err)
-		os.Exit(1)
-	}
-
-	if len(files) == 0 {
-		fmt.Println("No changes to review.")
-		os.Exit(0)
-	}
-
 	// Initialize persistence
 	store, err := persistence.NewFileStore()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing session store: %v\n", err)
 		os.Exit(1)
-	}
-
-	// Load or create session
-	session, _ := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
-	if session == nil {
-		session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
-	}
-
-	for _, f := range files {
-		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
 	// Select theme and syntax highlighting style
@@ -79,12 +47,35 @@ func main() {
 		th = theme.Light()
 		chromaStyle = "github"
 	}
-
-	// Apply syntax highlighting
 	highlighter := syntax.NewHighlighter(chromaStyle)
-	highlighter.HighlightFiles(files)
 
-	app := ui.NewApp(backend, files, session, th, highlighter, store)
+	var app ui.App
+	if *revisions != "" {
+		info := backend.Info()
+		files, err := backend.GetRevisionDiff(*revisions)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting diff: %v\n", err)
+			os.Exit(1)
+		}
+		if len(files) == 0 {
+			fmt.Println("No changes to review.")
+			os.Exit(0)
+		}
+		highlighter.HighlightFiles(files)
+
+		diffSource := model.DiffCommitRange
+		session, _ := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
+		if session == nil {
+			session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
+		}
+		for _, f := range files {
+			session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
+		}
+		app = ui.NewApp(backend, files, session, th, highlighter, store)
+	} else {
+		app = ui.NewPickerApp(backend, th, highlighter, store)
+	}
+
 	p := tea.NewProgram(&app)
 
 	if _, err := p.Run(); err != nil {
@@ -93,8 +84,8 @@ func main() {
 	}
 
 	// If --stdout, print comments as markdown
-	if *stdoutFlag && session.TotalComments() > 0 {
-		fmt.Print(output.GenerateMarkdown(session))
+	if *stdoutFlag {
+		app.ExportMarkdown(os.Stdout)
 	}
 }
 
