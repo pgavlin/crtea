@@ -192,18 +192,32 @@ func (a *App) renderDiffView(width, height int) string {
 		end = len(a.annotations)
 	}
 
+	editorInjected := false
 	for i := a.scrollOffset; i < end && len(lines) < vpHeight; i++ {
 		ann := a.annotations[i]
 		isCursor := (i == a.cursorLine && a.focusedPanel == PanelDiff)
 		isVisualSelected := a.isVisualSelected(i)
 
+		// When editing an existing comment, replace its annotation lines with the editor
+		if a.inputMode == ModeComment && a.editingID != "" && a.isEditingAnnotation(ann) {
+			if !editorInjected {
+				editorInjected = true
+				for _, el := range a.renderCommentEditor(width) {
+					if len(lines) >= vpHeight {
+						break
+					}
+					lines = append(lines, el)
+				}
+			}
+			continue // skip the original comment's annotation lines
+		}
+
 		line := a.renderAnnotatedLine(ann, width, isCursor, isVisualSelected)
 		lines = append(lines, line)
 
-		// Inject inline comment editor after the cursor line
-		if i == a.cursorLine && a.inputMode == ModeComment {
-			editorLines := a.renderCommentEditor(width)
-			for _, el := range editorLines {
+		// Inject inline comment editor after the cursor line (new comments)
+		if i == a.cursorLine && a.inputMode == ModeComment && a.editingID == "" {
+			for _, el := range a.renderCommentEditor(width) {
 				if len(lines) >= vpHeight {
 					break
 				}
@@ -540,6 +554,43 @@ func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLe
 	inner := truncateOrPad(text, innerWidth)
 	line := gutter + borderStyle.Render("│") + " " + contentStyle.Render(inner) + " " + borderStyle.Render("│")
 	return truncateOrPad(line, width)
+}
+
+// isEditingAnnotation returns true if the annotation belongs to the comment currently being edited.
+func (a *App) isEditingAnnotation(ann AnnotatedLine) bool {
+	if a.editingID == "" {
+		return false
+	}
+
+	isCommentAnn := ann.Type == AnnFileComment || ann.Type == AnnLineComment
+	if !isCommentAnn {
+		return false
+	}
+
+	path := ""
+	if ann.FileIdx >= 0 && ann.FileIdx < len(a.diffFiles) {
+		path = a.diffFiles[ann.FileIdx].DisplayPath()
+	}
+	fr := a.session.GetFileReview(path)
+	if fr == nil {
+		return false
+	}
+
+	if ann.Type == AnnFileComment {
+		if ann.CommentIdx < len(fr.FileComments) {
+			return fr.FileComments[ann.CommentIdx].ID == a.editingID
+		}
+	} else {
+		lineNo := ann.NewLineNo
+		if ann.Side == model.SideOld {
+			lineNo = ann.OldLineNo
+		}
+		if comments, ok := fr.LineComments[lineNo]; ok && ann.CommentIdx < len(comments) {
+			return comments[ann.CommentIdx].ID == a.editingID
+		}
+	}
+
+	return false
 }
 
 func (a *App) renderCommentEditor(width int) []string {
