@@ -349,18 +349,30 @@ func parseHunkHeader(line string) *model.DiffHunk {
 		if strings.HasPrefix(rp, "-") {
 			nums := strings.SplitN(strings.TrimPrefix(rp, "-"), ",", 2)
 			hunk.OldStart, _ = strconv.Atoi(nums[0])
+			if hunk.OldStart < 0 {
+				hunk.OldStart = 0
+			}
 			if len(nums) > 1 {
 				hunk.OldCount, _ = strconv.Atoi(nums[1])
 			} else {
 				hunk.OldCount = 1
 			}
+			if hunk.OldCount < 0 {
+				hunk.OldCount = 0
+			}
 		} else if strings.HasPrefix(rp, "+") {
 			nums := strings.SplitN(strings.TrimPrefix(rp, "+"), ",", 2)
 			hunk.NewStart, _ = strconv.Atoi(nums[0])
+			if hunk.NewStart < 0 {
+				hunk.NewStart = 0
+			}
 			if len(nums) > 1 {
 				hunk.NewCount, _ = strconv.Atoi(nums[1])
 			} else {
 				hunk.NewCount = 1
+			}
+			if hunk.NewCount < 0 {
+				hunk.NewCount = 0
 			}
 		}
 	}
