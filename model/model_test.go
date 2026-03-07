@@ -60,9 +60,9 @@ func TestCommentTypeNext(t *testing.T) {
 
 func TestDiffFileDisplayPath(t *testing.T) {
 	tests := []struct {
-		name    string
-		file    DiffFile
-		want    string
+		name string
+		file DiffFile
+		want string
 	}{
 		{"new path preferred", DiffFile{OldPath: "old.go", NewPath: "new.go"}, "new.go"},
 		{"old path fallback", DiffFile{OldPath: "old.go"}, "old.go"},

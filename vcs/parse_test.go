@@ -251,8 +251,8 @@ func TestParseHunkHeader(t *testing.T) {
 	}{
 		{"@@ -1,5 +1,6 @@", 1, 5, 1, 6},
 		{"@@ -10,3 +10,4 @@ func foo()", 10, 3, 10, 4},
-		{"@@ -1 +1 @@", 1, 1, 1, 1},               // no comma = count of 1
-		{"@@ -0,0 +1,3 @@", 0, 0, 1, 3},            // new file
+		{"@@ -1 +1 @@", 1, 1, 1, 1},     // no comma = count of 1
+		{"@@ -0,0 +1,3 @@", 0, 0, 1, 3}, // new file
 	}
 	for _, tt := range tests {
 		hunk := parseHunkHeader(tt.input)

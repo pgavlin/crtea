@@ -62,7 +62,7 @@ func main() {
 				Aliases: []string{"t"},
 				Usage:   "color theme: dark, light, glamour-dark, glamour-light (auto-detected if omitted)",
 			},
-&cli.StringFlag{
+			&cli.StringFlag{
 				Name:    "revisions",
 				Aliases: []string{"r"},
 				Usage:   "review specific commits (e.g. main~5..HEAD)",
