@@ -1,183 +1,227 @@
-# Plan: GitHub Pull Request Integration
+# Plan: Remote Code Review Provider Integration
 
 This plan is organized into phases that can be implemented and shipped
 incrementally. Each phase produces a usable increment of functionality.
 
-## Phase 1: GitHub API Client and PR Diff Viewing
+A key architectural goal is **provider abstraction**: the interface between the
+app and any remote code review host (GitHub, GitLab, Bitbucket, etc.) is a
+clean Go interface. All model, mapping, UI, and CLI work is implemented against
+this abstract interface first. The concrete GitHub provider comes last — it
+simply implements the interface and plugs in. All phases before the final one
+can be developed and tested with a mock provider.
 
-**Goal:** `crtea --pr 123` fetches a PR diff from GitHub and opens it in the
-existing review UI. Read-only; no comment sync yet.
+---
 
-### 1.1 New package: `github/`
+## Phase 1: Provider Interface and Model Foundation
 
-#### `github/types.go`
+**Goal:** define the abstraction boundary, provider-neutral types, mapping
+layer, and all model changes needed for remote reviews.
 
-Define types for GitHub API responses. Keep these minimal — only the fields
-crtea needs.
+### 1.1 New package: `provider/`
+
+#### `provider/provider.go`
 
 ```go
-// PullRequest holds PR metadata fetched from the API.
-type PullRequest struct {
-    Number  int
-    Title   string
-    Body    string
-    State   string // "open", "closed", "merged"
-    HTMLURL string
-    Author  string // login
+// Provider defines the interface for remote code review hosts.
+type Provider interface {
+    // Name returns the provider name (e.g. "github", "gitlab").
+    Name() string
 
-    BaseRef string // e.g. "main"
-    HeadRef string // e.g. "feature-branch"
-    HeadSHA string // latest commit SHA on the PR
+    // GetAuthenticatedUser returns the current user's login/username.
+    GetAuthenticatedUser() (string, error)
+
+    // GetReviewRequest fetches metadata for a review request (PR, MR, etc.).
+    GetReviewRequest(id string) (*ReviewRequest, error)
+
+    // GetDiff fetches the diff for a review request in unified format.
+    GetDiff(id string) (string, error)
+
+    // ListReviews fetches existing top-level reviews.
+    ListReviews(id string) ([]Review, error)
+
+    // ListComments fetches all inline comments on the review request.
+    ListComments(id string) ([]Comment, error)
+
+    // ListConversation fetches general (non-inline) conversation comments.
+    ListConversation(id string) ([]ConversationComment, error)
+
+    // SubmitReview posts a review with inline comments.
+    SubmitReview(id string, review SubmitReviewRequest) error
+
+    // ReplyToComment posts a reply to an existing inline comment.
+    ReplyToComment(id string, commentID string, body string) error
+
+    // PostConversationComment posts a general conversation comment.
+    PostConversationComment(id string, body string) error
+
+    // Refresh re-fetches remote state and returns what changed.
+    Refresh(id string) (*RefreshResult, error)
 }
+```
 
-// ReviewComment is a comment on a specific line in the diff.
-type ReviewComment struct {
-    ID          int64
-    Body        string
-    Path        string
-    Line        int    // end line (or only line)
-    StartLine   int    // 0 if single-line
-    Side        string // "LEFT" or "RIGHT"
-    StartSide   string
-    Author      string
-    CreatedAt   time.Time
-    InReplyToID int64  // 0 if top-level
+The `id` parameter is an opaque string whose meaning is provider-specific (e.g.
+"123" for GitHub PR #123, "!456" for GitLab MR !456). The CLI flag determines
+which provider is used and what the id means.
+
+#### `provider/types.go`
+
+Provider-neutral types used by the interface:
+
+```go
+// ReviewRequest holds metadata for a PR / MR / etc.
+type ReviewRequest struct {
+    ID           string
+    Title        string
+    Body         string
+    State        string // "open", "closed", "merged"
+    Author       string
+    URL          string // web URL
+    BaseRef      string
+    HeadRef      string
+    HeadSHA      string
+    ProviderMeta map[string]string // provider-specific metadata
 }
 
 // Review is a top-level review (body + status).
 type Review struct {
-    ID     int64
-    Body   string
-    State  string // "APPROVED", "CHANGES_REQUESTED", "COMMENTED", etc.
-    Author string
+    ExternalID string
+    Author     string
+    Body       string
+    State      ReviewState
+    CreatedAt  time.Time
 }
 
-// IssueComment is a general conversation comment on the PR.
-type IssueComment struct {
-    ID        int64
+type ReviewState int
+
+const (
+    ReviewComment ReviewState = iota
+    ReviewApprove
+    ReviewRequestChanges
+)
+
+// Comment is an inline comment on a specific file/line.
+type Comment struct {
+    ExternalID string
+    Author     string
+    Body       string
+    Path       string
+    Line       int
+    StartLine  int    // 0 for single-line
+    Side       string // "old" or "new"
+    StartSide  string
+    ReplyToID  string // empty if top-level
+    CreatedAt  time.Time
+    IsOutdated bool
+}
+
+// ConversationComment is a general comment not tied to code.
+type ConversationComment struct {
+    ExternalID string
+    Author     string
+    Body       string
+    CreatedAt  time.Time
+}
+
+// SubmitReviewRequest is the payload for submitting a review.
+type SubmitReviewRequest struct {
+    Body     string
+    State    ReviewState
+    Comments []CommentDraft
+}
+
+// CommentDraft is a new inline comment to submit.
+type CommentDraft struct {
+    Path      string
+    Line      int
+    StartLine int
+    Side      string
+    StartSide string
     Body      string
-    Author    string
-    CreatedAt time.Time
+}
+
+// RefreshResult describes what changed on refresh.
+type RefreshResult struct {
+    Request         *ReviewRequest
+    NewComments     []Comment
+    NewReviews      []Review
+    NewConversation []ConversationComment
+    DiffChanged     bool   // true if the diff changed (new commits pushed)
+    Diff            string // new diff content, if DiffChanged
 }
 ```
 
-#### `github/client.go`
+#### `provider/mapping.go`
 
-Wrap the `gh` CLI for API access. This avoids adding HTTP dependencies and
-inherits the user's existing `gh auth` credentials.
-
-```go
-type Client struct {
-    Owner string
-    Repo  string
-}
-
-func NewClient(owner, repo string) *Client
-
-// Read operations (Phase 1)
-func (c *Client) GetPullRequest(number int) (*PullRequest, error)
-func (c *Client) GetPullRequestDiff(number int) (string, error)
-func (c *Client) ListReviews(number int) ([]Review, error)
-func (c *Client) ListReviewComments(number int) ([]ReviewComment, error)
-func (c *Client) ListIssueComments(number int) ([]IssueComment, error)
-func (c *Client) GetAuthenticatedUser() (string, error)
-
-// Write operations (Phase 3)
-func (c *Client) CreateReview(number int, body, event string, comments []ReviewCommentDraft) (int64, error)
-func (c *Client) CreateReviewComment(number int, draft ReviewCommentDraft) (int64, error)
-func (c *Client) ReplyToComment(prNumber int, commentID int64, body string) (int64, error)
-func (c *Client) CreateIssueComment(number int, body string) (int64, error)
-```
-
-Implementation: each method calls `gh api` via `exec.Command`, parses JSON
-output with `encoding/json`. Example:
+Convert between `provider` types and `model` types. This is the only place
+where both packages are imported together:
 
 ```go
-func (c *Client) GetPullRequestDiff(number int) (string, error) {
-    return ghOutput("api",
-        fmt.Sprintf("repos/%s/%s/pulls/%d", c.Owner, c.Repo, number),
-        "-H", "Accept: application/vnd.github.diff")
-}
+// ImportComments converts provider comments into model comments,
+// grouped by file path.
+func ImportComments(comments []Comment) map[string][]model.Comment
+
+// ImportReview converts a provider review into a model OverallReview.
+func ImportReview(review Review) model.OverallReview
+
+// ExportComments converts local model comments into provider comment drafts.
+// Skips comments that are already submitted.
+func ExportComments(session *model.ReviewSession, reviewer string) []CommentDraft
+
+// ExportReviewState maps model.ApprovalStatus to provider.ReviewState.
+func ExportReviewState(status model.ApprovalStatus) ReviewState
 ```
 
-The diff comes back in the same unified format that `vcs.parseDiff` already
-handles.
-
-#### `github/remote.go`
-
-Parse the GitHub remote from git config to auto-detect `owner` and `repo`:
-
-```go
-// DetectRemote extracts owner/repo from the git remote URL.
-func DetectRemote(repoPath string) (owner, repo string, err error)
-```
-
-Handles `git@github.com:owner/repo.git`, `https://github.com/owner/repo.git`,
-and `gh`-style `github.com/owner/repo` formats.
+Mapping rules (provider-neutral):
+- `Side "old"` → `model.SideOld`, `"new"` → `model.SideNew`
+- `StartLine` + `Line` → `model.LineRange{Start, End}`
+- `ReplyToID` → `model.Comment.ReplyToID`
+- `ExternalID` → `model.Comment.ExternalID`
+- `CommentSuggestion` content is passed through as-is; provider-specific
+  wrapping (e.g. GitHub suggestion fences) is each provider's responsibility
 
 ### 1.2 Model changes
 
-#### `model/session.go`
+#### `model/comment.go`
 
-Add `DiffPullRequest` to `DiffSource`:
+Add fields to `Comment`:
 
 ```go
-const (
-    DiffWorkingTree DiffSource = iota
-    DiffCommitRange
-    DiffPullRequest
-)
+Author     string `json:"author,omitempty"`
+ExternalID string `json:"external_id,omitempty"`
+ReplyToID  string `json:"reply_to_id,omitempty"`
+Submitted  bool   `json:"submitted,omitempty"`
 ```
 
-Add `PullRequest` metadata field to `ReviewSession`:
+#### `model/session.go`
+
+Add `DiffPullRequest` to `DiffSource`. Add new fields:
 
 ```go
-type PRInfo struct {
-    Number  int    `json:"number"`
-    Title   string `json:"title,omitempty"`
-    Body    string `json:"body,omitempty"`
-    Author  string `json:"author,omitempty"`
-    BaseRef string `json:"base_ref,omitempty"`
-    HeadRef string `json:"head_ref,omitempty"`
-    HeadSHA string `json:"head_sha,omitempty"`
-    HTMLURL string `json:"html_url,omitempty"`
+type ProviderInfo struct {
+    Name string `json:"name"`          // "github", "gitlab", etc.
+    ID   string `json:"id"`            // "123" for PR #123
+    URL  string `json:"url,omitempty"` // web URL
 }
 ```
 
 Add to `ReviewSession`:
 
 ```go
-PullRequest *PRInfo `json:"pull_request,omitempty"`
+Provider *ProviderInfo  `json:"provider,omitempty"`
+Reviewer string         `json:"reviewer,omitempty"`
+Reviews  []OverallReview `json:"reviews,omitempty"`
 ```
 
-### 1.3 CLI changes (`main.go`)
-
-Add a `--pr` flag:
+Add `Author` and `ExternalID` to `OverallReview`:
 
 ```go
-&cli.IntFlag{
-    Name:    "pr",
-    Aliases: []string{"p"},
-    Usage:   "review a GitHub pull request by number",
-},
+Author     string `json:"author,omitempty"`
+ExternalID string `json:"external_id,omitempty"`
 ```
 
-In `run()`, when `--pr` is set:
+### 1.3 VCS layer changes
 
-1. Call `github.DetectRemote(rootPath)` to get owner/repo
-2. Create `github.Client{Owner, Repo}`
-3. Call `client.GetPullRequest(prNumber)` for metadata
-4. Call `client.GetPullRequestDiff(prNumber)` for the diff
-5. Parse with existing `vcs.ParseDiff` (export it from the package)
-6. Run syntax highlighting
-7. Create or load session with `DiffPullRequest` source
-8. Populate `session.PullRequest` with PR metadata
-9. Set `session.Description` to PR title + body
-10. Launch `ui.NewApp(...)` as normal
-
-### 1.4 VCS layer changes
-
-Export `parseDiff` from `vcs/git.go` so the GitHub path can reuse it:
+Export `parseDiff` from `vcs/git.go` so the provider path can reuse it:
 
 ```go
 func ParseDiff(input string) []model.DiffFile {
@@ -185,115 +229,93 @@ func ParseDiff(input string) []model.DiffFile {
 }
 ```
 
-### 1.5 Persistence changes
+### 1.4 Persistence changes
 
-Update `LoadLatest` to match on PR number when `DiffSource == DiffPullRequest`:
+Update `LoadLatest` to match on provider info when
+`DiffSource == DiffPullRequest`.
+
+### Files to create
+- `provider/provider.go` — interface definition
+- `provider/types.go` — provider-neutral types
+- `provider/mapping.go` — bidirectional conversion
+- `provider/mapping_test.go`
+
+### Files to modify
+- `model/comment.go` — add `Author`, `ExternalID`, `ReplyToID`, `Submitted`
+- `model/session.go` — add `DiffPullRequest`, `ProviderInfo`, `Reviewer`,
+  `Reviews`, fields on `OverallReview`
+- `vcs/git.go` — export `ParseDiff`
+- `persistence/session.go` — update `LoadLatest` matching
+
+---
+
+## Phase 2: CLI and UI Plumbing for Remote Reviews
+
+**Goal:** wire the provider interface into the CLI and UI so that any provider
+can be plugged in. Uses a mock/stub provider for testing.
+
+### 2.1 CLI changes (`main.go`)
+
+Add a `--pr` flag:
 
 ```go
-if session.DiffSource == model.DiffPullRequest &&
-    session.PullRequest != nil &&
-    session.PullRequest.Number == prNumber {
-    return &session, nil
-}
+&cli.StringFlag{
+    Name:    "pr",
+    Aliases: []string{"p"},
+    Usage:   "review a pull/merge request (e.g. 123, owner/repo#123)",
+},
 ```
 
-Add `prNumber int` parameter to `LoadLatest` (0 for non-PR sessions).
+In `run()`, when `--pr` is set:
 
-### 1.6 UI changes
+1. Detect the provider and create a `provider.Provider` (Phase 7 implements
+   the actual detection; for now, accept a provider as a function parameter or
+   use a stub)
+2. Call `provider.GetReviewRequest(id)` for metadata
+3. Call `provider.GetDiff(id)` for the diff
+4. Parse with `vcs.ParseDiff`
+5. Run syntax highlighting
+6. Create or load session with `DiffPullRequest` source
+7. Populate `session.Provider` and `session.Description`
+8. Pass the `provider.Provider` to `NewApp`
+9. Launch as normal
 
-Update `renderStatusBar` to show PR info when available:
+### 2.2 UI: provider field on App
+
+Add `provider provider.Provider` field to `App` (nil for local-only reviews).
+Add constructor variant or option to set it.
+
+Update `renderStatusBar` to show provider info when available:
 
 ```
 [git:main] PR #123: Fix login bug                    0/5 reviewed
 ```
 
-### Files to create
-- `github/types.go`
-- `github/client.go`
-- `github/remote.go`
-- `github/remote_test.go`
-- `github/client_test.go` (test JSON parsing with fixture data)
-
 ### Files to modify
-- `model/session.go` — add `DiffPullRequest`, `PRInfo` struct, field on session
-- `vcs/git.go` — export `ParseDiff`
-- `persistence/session.go` — update `LoadLatest` signature and matching
-- `main.go` — add `--pr` flag and GitHub startup path
-- `ui/render.go` — PR info in status bar
+- `main.go` — add `--pr` flag and provider startup path
+- `ui/app.go` — add `provider` field
+- `ui/render.go` — provider info in status bar
 
 ---
 
-## Phase 2: Author Identity and Fetching Existing Comments
+## Phase 3: Displaying Remote Comments and Author Attribution
 
-**Goal:** fetch existing reviews and comments from the PR, display them with
-author attribution, and distinguish "mine" from "others'".
+**Goal:** display fetched comments with author names, distinguish "mine" from
+"others'", guard editing of others' comments.
 
-### 2.1 Model changes
+### 3.1 Comment import on startup
 
-#### `model/comment.go`
+In the `--pr` startup path (after Phase 2 setup):
 
-Add fields to `Comment`:
-
-```go
-Author     string `json:"author,omitempty"`      // GitHub login
-ExternalID string `json:"external_id,omitempty"` // GitHub comment ID
-ReplyToID  string `json:"reply_to_id,omitempty"` // parent comment external ID
-```
-
-Add field to `OverallReview`:
-
-```go
-Author     string `json:"author,omitempty"`
-ExternalID string `json:"external_id,omitempty"`
-```
-
-### 2.2 New package: `github/mapping.go`
-
-Convert between GitHub types and model types:
-
-```go
-// ImportReviewComments converts GitHub review comments into model comments,
-// grouped by file path and line number.
-func ImportReviewComments(
-    comments []ReviewComment,
-) map[string]*model.FileReview
-
-// ImportReview converts a GitHub review into a model OverallReview.
-func ImportReview(review Review) *model.OverallReview
-```
-
-Mapping rules:
-- `ReviewComment.Side "LEFT"` → `model.SideOld`, `"RIGHT"` → `model.SideNew`
-- `ReviewComment.StartLine` + `Line` → `model.LineRange{Start, End}` (when
-  StartLine > 0)
-- `ReviewComment.InReplyToID` → `Comment.ReplyToID` (as string)
-- `ReviewComment.ID` → `Comment.ExternalID` (as string)
-- `ReviewComment.Author` → `Comment.Author`
-- File-level comments (`subject_type == "file"`) → `FileReview.FileComments`
-
-### 2.3 Session loading with remote comments
-
-Add to the `--pr` startup path (after Phase 1 setup):
-
-1. Call `client.GetAuthenticatedUser()` → store as `session.Reviewer`
-2. Call `client.ListReviews(prNumber)` → import as `OverallReview` entries
-3. Call `client.ListReviewComments(prNumber)` → import into `FileReview` maps
-4. Call `client.ListIssueComments(prNumber)` → store as conversation
-5. Merge remote comments into the session, keyed by `ExternalID` to avoid
+1. Call `provider.GetAuthenticatedUser()` → store as `session.Reviewer`
+2. Call `provider.ListReviews(id)` → import via `provider.ImportReview`
+3. Call `provider.ListComments(id)` → import via `provider.ImportComments`
+4. Merge remote comments into the session, keyed by `ExternalID` to avoid
    duplicates on reload
 
-Add `Reviewer` field to `ReviewSession`:
+### 3.2 UI: author display
 
-```go
-Reviewer string `json:"reviewer,omitempty"` // authenticated user's login
-```
-
-### 2.4 UI changes for author display
-
-#### Comment rendering (`ui/render.go`)
-
-Update `renderCommentLine` to show the author name in the comment badge when
-present:
+Update `renderCommentLine` to show author in the comment badge when present:
 
 ```
 ╭ Note (@octocat) ───────────────────╮
@@ -301,152 +323,71 @@ present:
 ╰────────────────────────────────────╯
 ```
 
-- If `comment.Author == session.Reviewer`, use the existing comment type color
-- If `comment.Author != session.Reviewer`, use a distinct "remote" color (e.g.
-  `th.FgDim`) and render as read-only
+- Own comments (`Author == Reviewer`): use existing comment type color
+- Others' comments: use `th.FgDim`, render as read-only
 
-#### Comment editor restrictions
+### 3.3 Edit/delete guards
 
-When the cursor is on a remote comment (has `ExternalID` and author !=
-reviewer):
-- `i` (edit) shows message: "Cannot edit others' comments"
-- `dd` (delete) shows message: "Cannot delete others' comments"
-
-### 2.5 Multiple overall reviews
-
-Currently `OverallReview` is a single value. PRs can have multiple reviews from
-different people.
-
-Add to `ReviewSession`:
-
-```go
-Reviews []OverallReview `json:"reviews,omitempty"`
-```
-
-Keep `OverallReview` for the local user's draft. `Reviews` holds fetched remote
-reviews for display.
-
-### Files to create
-- `github/mapping.go`
-- `github/mapping_test.go`
+When cursor is on a remote comment (has `ExternalID` and `Author != Reviewer`):
+- `i` (edit) → "Cannot edit others' comments"
+- `dd` (delete) → "Cannot delete others' comments"
 
 ### Files to modify
-- `model/comment.go` — add `Author`, `ExternalID`, `ReplyToID`
-- `model/session.go` — add `Reviewer`, `Reviews` fields
-- `main.go` — fetch and import remote comments on `--pr` startup
+- `provider/mapping.go` — implement `ImportComments`, `ImportReview`
+- `main.go` — fetch and import remote comments on startup
 - `ui/render.go` — author display in comment badges
 - `ui/keys.go` — guard edit/delete on remote comments
 
 ---
 
-## Phase 3: Submitting Reviews to GitHub
+## Phase 4: Submitting Reviews
 
-**Goal:** `:submit` command posts the local review (overall review + all
-comments) to the PR as a single GitHub review.
+**Goal:** `:submit` command posts the local review to the remote provider.
 
-### 3.1 New type for review submission
+### 4.1 Export mapping
 
-#### `github/types.go`
+Implement `provider.ExportComments` and `ExportReviewState` in
+`provider/mapping.go`.
 
-```go
-type ReviewCommentDraft struct {
-    Path      string
-    Line      int
-    StartLine int    // 0 for single-line
-    Side      string // "LEFT" or "RIGHT"
-    StartSide string
-    Body      string
-}
-```
+The mapping layer produces `CommentDraft` with raw content. Each provider's
+`SubmitReview` implementation handles provider-specific formatting (e.g.
+GitHub wraps `CommentSuggestion` in `` ```suggestion `` fences).
 
-### 3.2 Export mapping (`github/mapping.go`)
+### 4.2 UI: `:submit` command
 
-```go
-// ExportComments converts model comments from a session into GitHub review
-// comment drafts.
-func ExportComments(session *model.ReviewSession) []ReviewCommentDraft
-```
+Add to `executeCommand()`. The flow:
 
-Mapping rules:
-- `model.SideOld` → `"LEFT"`, `model.SideNew` → `"RIGHT"`
-- `model.LineRange` → `StartLine` + `Line`
-- `model.CommentSuggestion` → wrap content in `` ```suggestion `` fences
-- Skip comments that already have an `ExternalID` (already submitted)
-- File-level comments: set `SubjectType: "file"`, omit line fields
-
-### 3.3 Review state tracking
-
-Add to `Comment`:
-
-```go
-Submitted bool `json:"submitted,omitempty"`
-```
-
-After successful submission, mark all submitted comments and persist the
-session. This prevents double-posting on re-submit.
-
-Map `ApprovalStatus` to GitHub events:
-- `ApprovalApprove` → `"APPROVE"`
-- `ApprovalRequestChanges` → `"REQUEST_CHANGES"`
-- `ApprovalNeutral` → `"COMMENT"`
-
-### 3.4 UI: `:submit` command
-
-Add to `executeCommand()`:
-
-```go
-case "submit":
-    return a.submitToGitHub()
-```
-
-`submitToGitHub()`:
-1. Verify session has `PullRequest` metadata (error if not a PR review)
-2. Collect unsubmitted comments via `github.ExportComments(session)`
-3. Map `OverallReview.Status` to GitHub event string
-4. Call `client.CreateReview(prNumber, body, event, comments)`
-5. On success, mark all comments as `Submitted = true`
-6. Store the returned review ID as `OverallReview.ExternalID`
-7. Auto-save the session
-8. Show status message: "Review submitted to PR #123"
-
-The GitHub client needs to be accessible from the UI. Add it as a field on `App`:
-
-```go
-ghClient *github.Client // nil when not reviewing a PR
-```
-
-### 3.5 UI: confirmation before submit
-
-Since submitting is a visible-to-others action, use `modeConfirm`:
-
-```
-Submit review to PR #123? (Approve, 5 comments) [y/n]
-```
+1. Verify session has `Provider` metadata and `app.provider` is set
+2. Collect unsubmitted comments via `provider.ExportComments`
+3. Map `OverallReview.Status` via `ExportReviewState`
+4. Show confirmation via `modeConfirm`:
+   ```
+   Submit review to PR #123? (Approve, 5 comments) [y/n]
+   ```
+5. Call `provider.SubmitReview(id, request)`
+6. Mark comments as `Submitted = true`
+7. Auto-save session
+8. Show status: "Review submitted to PR #123"
 
 ### Files to modify
-- `github/types.go` — add `ReviewCommentDraft`
-- `github/mapping.go` — add `ExportComments`
-- `github/client.go` — implement `CreateReview`
-- `model/comment.go` — add `Submitted` field
-- `ui/app.go` — add `ghClient` field
-- `ui/keys.go` — add `:submit` command
-- `ui/render.go` — add submit confirmation text
-- `main.go` — pass `ghClient` to `NewApp`
+- `provider/mapping.go` — implement `ExportComments`, `ExportReviewState`
+- `model/comment.go` — use `Submitted` field (added in Phase 1)
+- `ui/keys.go` — add `:submit` command, confirmation flow
+- `ui/render.go` — submit confirmation text
 
 ---
 
-## Phase 4: Comment Replies and Threading
+## Phase 5: Comment Replies and Threading
 
 **Goal:** view and create threaded replies on review comments.
 
-### 4.1 Thread grouping (`ui/annotations.go`)
+### 5.1 Thread grouping (`ui/annotations.go`)
 
 Update `buildAnnotations` to group comments into threads:
 
-- Comments with the same `ExternalID` as another comment's `ReplyToID` form a
-  thread
-- Within a thread, comments are ordered by `CreatedAt`
-- Render thread as a single connected box:
+- Comments sharing the same parent `ExternalID` form a thread
+- Within a thread, order by `CreatedAt`
+- Render as a single connected box:
   ```
   ╭ Note (@alice) ───────────────────╮
   │ Is this intentional?             │
@@ -455,21 +396,17 @@ Update `buildAnnotations` to group comments into threads:
   │ case from #456                   │
   ╰──────────────────────────────────╯
   ```
-- Each reply shows its author inline
 
-### 4.2 Reply keybinding
+### 5.2 Reply keybinding
 
-Add `a` (answer/reply) keybinding in normal mode:
+Add `a` (answer/reply) in normal mode:
 
-- When cursor is on a comment that has `ExternalID`, enter `modeComment` with
-  `replyToID` set to that comment's `ExternalID`
-- The comment editor shows "Reply to @author" in the title
-- On save, the new comment gets `ReplyToID` set
-- On `:submit`, comments with `ReplyToID` use
-  `client.ReplyToComment(prNumber, parentID, body)` instead of being bundled
+- On a comment with `ExternalID`: enter `modeComment` with `replyToID` set
+- Comment editor shows "Reply to @author" in the title
+- On `:submit`, replies use `provider.ReplyToComment` instead of being bundled
   into the review
 
-### 4.3 UI state
+### 5.3 App state
 
 Add to `App`:
 
@@ -480,25 +417,20 @@ replyToID string // ExternalID of comment being replied to
 Clear on save/cancel, same as `editingID`.
 
 ### Files to modify
-- `ui/annotations.go` — thread grouping logic
+- `ui/annotations.go` — thread grouping
 - `ui/render.go` — threaded comment rendering
-- `ui/keys.go` — `a` keybinding, reply handling in submit
+- `ui/keys.go` — `a` keybinding, reply handling
 - `ui/app.go` — `replyToID` field
-- `github/client.go` — `ReplyToComment` implementation
 
 ---
 
-## Phase 5: General Conversation
+## Phase 6: General Conversation and Refresh
 
-**Goal:** view and post general PR comments (not tied to code lines).
+**Goal:** view/post general conversation comments; refresh remote state.
 
-### 5.1 Model changes
+### 6.1 Model changes
 
 Add to `ReviewSession`:
-
-```go
-Conversation []ConversationComment `json:"conversation,omitempty"`
-```
 
 ```go
 type ConversationComment struct {
@@ -507,86 +439,275 @@ type ConversationComment struct {
     Body       string    `json:"body"`
     CreatedAt  time.Time `json:"created_at"`
 }
+
+Conversation []ConversationComment `json:"conversation,omitempty"`
 ```
 
-### 5.2 Conversation view
+### 6.2 Conversation view
 
-Add a toggle (like `D` toggles description/commit list) to show the PR
-conversation timeline in the top panel area. Display conversation comments
+Toggle with `P` to show the conversation timeline in the top panel. Display
 chronologically with author names.
 
-New keybinding: `P` (PR conversation) toggles the conversation panel.
+### 6.3 Posting
 
-### 5.3 Posting conversation comments
+Add `:comment` command → text editor (like `modeReview`) →
+`provider.PostConversationComment`.
 
-Add `:comment` command that opens a text editor (like `modeReview`) for writing
-a general PR comment. On submit, calls
-`client.CreateIssueComment(prNumber, body)`.
+### 6.4 `:refresh` command
+
+Uses `provider.Refresh(id)` which returns a `RefreshResult`:
+
+1. Merge new comments/reviews into session
+2. If `DiffChanged`, re-parse and rebuild the view
+3. Show status: "Refreshed: 3 new comments, 1 updated"
+
+### 6.5 Outdated comments
+
+Display outdated comments (`IsOutdated`) with dimmed styling and "outdated"
+label. Warn when replying to outdated comments.
 
 ### Files to modify
-- `model/session.go` — add `Conversation`, `ConversationComment`
+- `model/session.go` — add `ConversationComment`, `Conversation` field
 - `ui/app.go` — conversation panel state
-- `ui/render.go` — conversation panel rendering
-- `ui/keys.go` — `P` toggle, `:comment` command
-- `main.go` — fetch conversation comments on startup
-- `github/client.go` — `CreateIssueComment` implementation
+- `ui/render.go` — conversation rendering, outdated comment styling
+- `ui/keys.go` — `P` toggle, `:comment` command, `:refresh` command
+- `main.go` — fetch conversation on startup
 
 ---
 
-## Phase 6: Suggestion Syntax
+## Phase 7: Mock Provider Demo App
 
-**Goal:** suggestions submitted to GitHub use the ` ```suggestion ``` ` fence
-block format.
+**Goal:** build a standalone demo binary with a mock provider that returns
+realistic canned data. This allows full UX exploration of all remote review
+features locally, without any real API, before implementing a real provider.
 
-### 6.1 Export mapping
+### 7.1 New package: `provider/mock/`
 
-In `github/mapping.go`, when converting a `CommentSuggestion`:
+#### `provider/mock/mock.go`
+
+A complete `provider.Provider` implementation backed by in-memory data:
 
 ```go
-if comment.Type == model.CommentSuggestion {
-    body = "```suggestion\n" + comment.Content + "\n```"
+type Mock struct {
+    user         string
+    request      provider.ReviewRequest
+    diff         string
+    reviews      []provider.Review
+    comments     []provider.Comment
+    conversation []provider.ConversationComment
+
+    // Mutable state for write operations
+    submitted    []provider.SubmitReviewRequest
+    replies      []replyRecord
+    posted       []string
+}
+
+func New() *Mock // pre-populated with realistic sample data
+
+func (m *Mock) Name() string { return "mock" }
+func (m *Mock) GetAuthenticatedUser() (string, error)
+func (m *Mock) GetReviewRequest(id string) (*provider.ReviewRequest, error)
+func (m *Mock) GetDiff(id string) (string, error)
+func (m *Mock) ListReviews(id string) ([]provider.Review, error)
+func (m *Mock) ListComments(id string) ([]provider.Comment, error)
+func (m *Mock) ListConversation(id string) ([]provider.ConversationComment, error)
+func (m *Mock) SubmitReview(id string, review provider.SubmitReviewRequest) error
+func (m *Mock) ReplyToComment(id string, commentID string, body string) error
+func (m *Mock) PostConversationComment(id string, body string) error
+func (m *Mock) Refresh(id string) (*provider.RefreshResult, error)
+```
+
+Write operations (`SubmitReview`, `ReplyToComment`, `PostConversationComment`)
+record what was submitted in memory and return success. `Refresh` returns a
+`RefreshResult` that includes any comments/replies created since the last
+refresh, simulating real bidirectional sync.
+
+#### Canned data
+
+`New()` populates the mock with a realistic scenario:
+
+- **Review request:** PR #42 "Add user authentication middleware" by `@alice`,
+  open, base `main` → head `feature/auth`, 3 files changed
+- **Diff:** a realistic unified diff with ~3 files (e.g. `auth/middleware.go`
+  added, `server.go` modified, `auth/middleware_test.go` added), containing
+  additions, deletions, context lines, and multiple hunks
+- **Reviews:**
+  - `@bob`: "REQUEST_CHANGES" — "A few things to address before merging"
+  - `@carol`: "COMMENT" — "Looking good overall, minor nits"
+- **Inline comments (with threads):**
+  - `@bob` on `auth/middleware.go:25` (new side): "This should validate the
+    token expiry" (ExternalID: "c1")
+    - `@alice` reply: "Good catch, I'll add that check" (ReplyToID: "c1")
+    - `@bob` reply: "Thanks! Also consider the clock skew case" (ReplyToID: "c1")
+  - `@carol` on `auth/middleware.go:40` (new side): "Nit: consider extracting
+    this into a helper" (ExternalID: "c4")
+  - `@bob` on `server.go:112` (old side): "Was this intentional? The old
+    handler had rate limiting" (ExternalID: "c5")
+  - An outdated comment: `@carol` on `auth/middleware.go:10`, marked
+    `IsOutdated: true`: "Typo in package doc" (ExternalID: "c6")
+- **Conversation:**
+  - `@alice`: "Ready for review! This adds JWT-based auth middleware."
+  - `@bob`: "I'll take a look this afternoon."
+  - `@carol`: "Reviewing now."
+- **Authenticated user:** `@you` (so own comments are distinguishable)
+
+### 7.2 Demo binary: `cmd/crtea-demo/main.go`
+
+A minimal main that wires the mock provider into the existing app:
+
+```go
+func main() {
+    mock := mock.New()
+
+    // Parse the mock diff into DiffFiles
+    files := vcs.ParseDiff(mock.GetDiff("42"))
+    highlighter.HighlightFiles(files)
+
+    // Build session from mock data
+    session := // ... create session, import reviews/comments via mapping
+
+    app := ui.NewApp(backend, files, session, th, highlighter, store)
+    app.SetProvider(mock, "42")
+
+    // Run as normal
 }
 ```
 
-### 6.2 Suggestion editor UX (optional)
+This binary requires no git repo, no network, no `gh` CLI. Run it with:
 
-When pressing `c` on a diff line and cycling to `Suggestion` type, pre-fill the
-comment buffer with the current line's content so the user can edit it into
-their suggested replacement.
+```
+go run ./cmd/crtea-demo
+```
 
-### Files to modify
-- `github/mapping.go` — suggestion wrapping in `ExportComments`
-- `ui/keys.go` — optional: pre-fill suggestion buffer
+It exercises the full UX: viewing the diff, seeing threaded comments from
+multiple authors, author attribution, outdated comment styling, the
+conversation panel, `:submit` (records in memory and shows success), `:refresh`
+(returns any locally-submitted data back), and reply workflows.
+
+### 7.3 What to validate
+
+Use the demo to verify before moving to a real provider:
+
+- [ ] Author names display correctly in comment badges
+- [ ] Own vs others' comments are visually distinct
+- [ ] Edit/delete guards work on others' comments
+- [ ] Threaded comments render as connected boxes
+- [ ] `a` (reply) works on comments with `ExternalID`
+- [ ] Outdated comments show dimmed with label
+- [ ] Conversation panel (`P` toggle) displays timeline
+- [ ] `:submit` shows confirmation, reports success
+- [ ] `:refresh` shows "N new comments" status
+- [ ] `:comment` posts to conversation
+- [ ] Provider info shows in status bar ("mock PR #42: Add user auth...")
+
+### Files to create
+- `provider/mock/mock.go` — mock provider with canned data
+- `cmd/crtea-demo/main.go` — demo binary
 
 ---
 
-## Phase 7: Refresh and Sync
+## Phase 8: GitHub Provider
 
-**Goal:** `:refresh` re-fetches remote state; handle outdated comments
-gracefully.
+**Goal:** implement the `provider.Provider` interface for GitHub. This is the
+only phase that introduces GitHub-specific code.
 
-### 7.1 `:refresh` command
+### 8.1 New package: `provider/github/`
 
-1. Re-fetch PR metadata (check for new commits, state changes)
-2. Re-fetch all reviews and comments
-3. Merge into session: add new remote comments, update changed ones, mark
-   deleted ones
-4. If `HeadSHA` changed, re-fetch and re-parse the diff
-5. Show status: "Refreshed: 3 new comments, 1 updated"
+#### `provider/github/github.go`
 
-### 7.2 Outdated comment handling
+Implements `provider.Provider` by wrapping the `gh` CLI:
 
-When the PR has new commits after a comment was placed, GitHub marks comments as
-"outdated". The API response includes `position: null` for these.
+```go
+type GitHub struct {
+    Owner string
+    Repo  string
+}
 
-Display outdated comments with a visual indicator (dimmed, with "outdated"
-label). Don't prevent viewing them, but warn when replying.
+func New(owner, repo string) *GitHub
+
+func (g *GitHub) Name() string { return "github" }
+func (g *GitHub) GetAuthenticatedUser() (string, error)
+func (g *GitHub) GetReviewRequest(id string) (*provider.ReviewRequest, error)
+func (g *GitHub) GetDiff(id string) (string, error)
+func (g *GitHub) ListReviews(id string) ([]provider.Review, error)
+func (g *GitHub) ListComments(id string) ([]provider.Comment, error)
+func (g *GitHub) ListConversation(id string) ([]provider.ConversationComment, error)
+func (g *GitHub) SubmitReview(id string, review provider.SubmitReviewRequest) error
+func (g *GitHub) ReplyToComment(id string, commentID string, body string) error
+func (g *GitHub) PostConversationComment(id string, body string) error
+func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error)
+```
+
+Each method calls `gh api` via `exec.Command`, parses JSON with
+`encoding/json`. The diff comes back in unified format that `vcs.ParseDiff`
+already handles.
+
+**Suggestion formatting:** `SubmitReview` scans `CommentDraft` bodies for
+suggestion markers and wraps them in `` ```suggestion `` fences before posting.
+
+**API mapping:**
+
+| Provider method | GitHub API endpoint |
+|---|---|
+| `GetReviewRequest` | `GET /repos/{o}/{r}/pulls/{n}` |
+| `GetDiff` | `GET /repos/{o}/{r}/pulls/{n}` with `Accept: application/vnd.github.diff` |
+| `ListReviews` | `GET /repos/{o}/{r}/pulls/{n}/reviews` |
+| `ListComments` | `GET /repos/{o}/{r}/pulls/{n}/comments` |
+| `ListConversation` | `GET /repos/{o}/{r}/issues/{n}/comments` |
+| `SubmitReview` | `POST /repos/{o}/{r}/pulls/{n}/reviews` |
+| `ReplyToComment` | `POST /repos/{o}/{r}/pulls/{n}/comments/{id}/replies` |
+| `PostConversationComment` | `POST /repos/{o}/{r}/issues/{n}/comments` |
+| `GetAuthenticatedUser` | `GET /user` |
+
+**Review state mapping:**
+- `ReviewApprove` → `"APPROVE"`
+- `ReviewRequestChanges` → `"REQUEST_CHANGES"`
+- `ReviewComment` → `"COMMENT"`
+
+#### `provider/github/remote.go`
+
+```go
+// DetectRemote extracts owner/repo from the git remote URL.
+func DetectRemote(repoPath string) (owner, repo string, err error)
+```
+
+Handles `git@github.com:owner/repo.git`, `https://github.com/owner/repo.git`,
+and `gh`-style formats.
+
+### 8.2 CLI: provider detection
+
+Wire up provider detection in `main.go`:
+
+1. When `--pr` is set, call `github.DetectRemote(rootPath)` to get owner/repo
+2. Create `github.New(owner, repo)` as the `provider.Provider`
+3. Pass to the existing startup path from Phase 2
+
+Future providers add detection here (e.g. detect GitLab remote, create
+`gitlab.New(...)`).
+
+### Files to create
+- `provider/github/github.go`
+- `provider/github/remote.go`
+- `provider/github/remote_test.go`
+- `provider/github/github_test.go` (test JSON parsing with fixture data)
 
 ### Files to modify
-- `ui/keys.go` — `:refresh` command
-- `github/client.go` — re-fetch methods
-- `github/mapping.go` — merge logic
-- `ui/render.go` — outdated comment styling
+- `main.go` — wire GitHub provider detection into `--pr` flag
+
+---
+
+## Adding a New Provider
+
+To add a new provider (e.g. GitLab):
+
+1. Create `provider/gitlab/gitlab.go` implementing `provider.Provider`
+2. Add remote detection in `provider/gitlab/remote.go`
+3. Add a CLI flag (e.g. `--mr`) or auto-detect from the git remote
+4. Register the provider in `main.go`
+
+No changes needed to `model/`, `ui/`, or `provider/mapping.go`. The mapping
+layer works with the provider-neutral types. Provider-specific formatting
+(like suggestion syntax) lives in the provider implementation.
 
 ---
 
@@ -594,22 +715,28 @@ label). Don't prevent viewing them, but warn when replying.
 
 | Phase | Dependencies | Risk |
 |---|---|---|
-| 1 | None (new code + minor model additions) | Low — `gh` CLI may not be installed |
-| 2 | Phase 1 | Low — read-only, additive model changes |
-| 3 | Phase 1, 2 | Medium — submitting is destructive (visible to others), needs confirmation |
-| 4 | Phase 2, 3 | Medium — thread rendering complexity |
-| 5 | Phase 1 | Low — mostly new UI, independent of review comments |
-| 6 | Phase 3 | Low — small mapping change |
-| 7 | Phase 1, 2, 3 | Medium — merge conflicts between local and remote state |
+| 1 | None (new types, interfaces, model fields) | Low — design work |
+| 2 | Phase 1 | Low — CLI plumbing, testable with mock |
+| 3 | Phase 1, 2 | Low — read-only UI changes |
+| 4 | Phase 1, 2, 3 | Medium — visible to others, needs confirmation |
+| 5 | Phase 3 | Medium — thread rendering complexity |
+| 6 | Phase 1, 2 | Low — mostly new UI, independent of inline comments |
+| 7 | Phase 1–6 | Low — canned data, exercises all features end-to-end |
+| 8 | Phase 1–7 | Low — pure implementation of existing interface |
 
 ## Testing Strategy
 
-- **`github/client.go`**: test JSON parsing with fixture files (captured `gh api`
-  output). Mock `ghOutput` for unit tests.
-- **`github/mapping.go`**: pure function tests — given GitHub types, verify
-  model types are correct.
-- **`github/remote.go`**: test URL parsing for SSH, HTTPS, and `gh`-style
-  remotes.
+- **Phases 1–6**: unit tests with a mock `provider.Provider` that returns
+  canned data. All UI/model/mapping logic can be fully tested without any API.
+- **`provider/mapping.go`**: pure function tests — given provider types, verify
+  model types are correct (and vice versa).
+- **Phase 7 (`provider/mock/`)**: the mock provider doubles as both the demo
+  app backend and a reusable test fixture. The demo binary is the manual
+  integration test — use it to validate every UX feature end-to-end.
+- **Phase 8 (`provider/github/`)**: test JSON parsing with fixture files
+  (captured `gh api` output). Mock `ghOutput` for unit tests.
+- **`provider/github/remote.go`**: test URL parsing for SSH, HTTPS, and
+  `gh`-style remotes.
 - **Integration**: manual testing against a real PR. Create a test repo with a
   known PR for CI.
 
@@ -617,9 +744,6 @@ label). Don't prevent viewing them, but warn when replying.
 
 - **Real-time updates / websockets**: out of scope. Use `:refresh` for manual
   sync.
-- **Creating PRs**: crtea is a review tool, not a PR creation tool. Use
-  `gh pr create`.
-- **Merge / close operations**: use `gh pr merge` or the web UI.
-- **Multiple provider support** (GitLab, Bitbucket): design the `github/`
-  package cleanly, but don't abstract prematurely. Can be added later behind an
-  interface if needed.
+- **Creating PRs/MRs**: crtea is a review tool. Use `gh pr create` / `glab mr
+  create`.
+- **Merge / close operations**: use the provider's CLI or web UI.
