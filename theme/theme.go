@@ -117,6 +117,106 @@ func Dark() Theme {
 	}
 }
 
+// GlamourDark returns a dark theme inspired by the charmbracelet/glamour dark style.
+func GlamourDark() Theme {
+	return Theme{
+		PanelBg:     c("#373737"),
+		BgHighlight: c("#444444"),
+		FgPrimary:   c("#C4C4C4"),
+		FgSecondary: c("#999999"),
+		FgDim:       c("#676767"),
+
+		DiffAdd:       c("#00D787"),
+		DiffAddBg:     c("#1a3a2a"),
+		DiffDel:       c("#FD5B5B"),
+		DiffDelBg:     c("#3a1a1a"),
+		DiffContext:   c("#C4C4C4"),
+		DiffHunkHdr:   c("#00AAFF"),
+		ExpandedCtxFg: c("#676767"),
+
+		FileAdded:    c("#00D787"),
+		FileModified: c("#FF875F"),
+		FileDeleted:  c("#FD5B5B"),
+		FileRenamed:  c("#00AAFF"),
+
+		Reviewed: c("#00D787"),
+		Pending:  c("#FF875F"),
+
+		CommentNote:       c("#00AAFF"),
+		CommentSuggestion: c("#00D787"),
+		CommentIssue:      c("#FD5B5B"),
+		CommentPraise:     c("#FFFF87"),
+		CommentQuestion:   c("#B083EA"),
+
+		BorderFocused:   c("#00AAFF"),
+		BorderUnfocused: c("#555555"),
+		StatusBarBg:     c("#2A2A2A"),
+		StatusBarFg:     c("#C4C4C4"),
+		CursorColor:     c("#00AAFF"),
+		BranchName:      c("#B083EA"),
+
+		MessageInfoFg:  c("#373737"),
+		MessageInfoBg:  c("#00AAFF"),
+		MessageWarnFg:  c("#373737"),
+		MessageWarnBg:  c("#FF875F"),
+		MessageErrorFg: c("#373737"),
+		MessageErrorBg: c("#FD5B5B"),
+
+		ModeFg: c("#373737"),
+		ModeBg: c("#00AAFF"),
+	}
+}
+
+// GlamourLight returns a light theme inspired by the charmbracelet/glamour light style.
+func GlamourLight() Theme {
+	return Theme{
+		PanelBg:     c("#F1F1F1"),
+		BgHighlight: c("#DCDCDC"),
+		FgPrimary:   c("#2A2A2A"),
+		FgSecondary: c("#555555"),
+		FgDim:       c("#8D8D8D"),
+
+		DiffAdd:       c("#019F57"),
+		DiffAddBg:     c("#D5F0DA"),
+		DiffDel:       c("#FF5555"),
+		DiffDelBg:     c("#F5D0D0"),
+		DiffContext:   c("#2A2A2A"),
+		DiffHunkHdr:   c("#279EFC"),
+		ExpandedCtxFg: c("#8D8D8D"),
+
+		FileAdded:    c("#019F57"),
+		FileModified: c("#FF875F"),
+		FileDeleted:  c("#FF5555"),
+		FileRenamed:  c("#279EFC"),
+
+		Reviewed: c("#019F57"),
+		Pending:  c("#FF875F"),
+
+		CommentNote:       c("#279EFC"),
+		CommentSuggestion: c("#019F57"),
+		CommentIssue:      c("#FF5555"),
+		CommentPraise:     c("#A3A322"),
+		CommentQuestion:   c("#581290"),
+
+		BorderFocused:   c("#279EFC"),
+		BorderUnfocused: c("#CCCCCC"),
+		StatusBarBg:     c("#E0E0E0"),
+		StatusBarFg:     c("#2A2A2A"),
+		CursorColor:     c("#279EFC"),
+		BranchName:      c("#581290"),
+
+		MessageInfoFg:  c("#F1F1F1"),
+		MessageInfoBg:  c("#279EFC"),
+		MessageWarnFg:  c("#F1F1F1"),
+		MessageWarnBg:  c("#FF875F"),
+		MessageErrorFg: c("#F1F1F1"),
+		MessageErrorBg: c("#FF5555"),
+
+		ModeFg: c("#F1F1F1"),
+		ModeBg: c("#279EFC"),
+	}
+}
+
 // Light returns the light theme.
 func Light() Theme {
 	return Theme{

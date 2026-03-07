@@ -6,6 +6,7 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/output"
@@ -77,11 +78,27 @@ func main() {
 	}
 
 	// Select theme and syntax highlighting style
-	th := theme.Dark()
+	var th theme.Theme
 	chromaStyle := "monokai"
-	if *themeFlag == "light" {
+	switch *themeFlag {
+	case "dark":
+		th = theme.Dark()
+	case "light":
 		th = theme.Light()
 		chromaStyle = "github"
+	case "glamour-dark":
+		th = theme.GlamourDark()
+	case "glamour-light":
+		th = theme.GlamourLight()
+		chromaStyle = "github"
+	default:
+		// Auto-detect based on terminal background color
+		if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
+			th = theme.Dark()
+		} else {
+			th = theme.Light()
+			chromaStyle = "github"
+		}
 	}
 	highlighter := syntax.NewHighlighter(chromaStyle)
 
