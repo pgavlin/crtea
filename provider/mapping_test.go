@@ -188,3 +188,76 @@ func TestImportConversation(t *testing.T) {
 		t.Errorf("expected 'On it', got %s", result[1].Body)
 	}
 }
+
+func TestMergeImportedComments_DedupsSubmitted(t *testing.T) {
+	fr := &model.FileReview{
+		Path:         "main.go",
+		LineComments: map[int][]model.Comment{},
+	}
+	// Simulate a locally-submitted comment (no ExternalID)
+	fr.AddLineComment(6, model.Comment{
+		ID:        "local-1",
+		Content:   "fix this",
+		Side:      model.SideNew,
+		Author:    "alice",
+		Submitted: true,
+	})
+
+	// Import the same comment back from the server (with ExternalID)
+	remote := map[int][]model.Comment{
+		6: {
+			{
+				ID:         "ext-100",
+				Content:    "fix this",
+				Side:       model.SideNew,
+				Author:     "alice",
+				ExternalID: "ext-100",
+			},
+		},
+	}
+
+	added := MergeImportedComments(fr, remote)
+	if added != 1 {
+		t.Errorf("expected 1 added, got %d", added)
+	}
+	if len(fr.LineComments[6]) != 1 {
+		t.Fatalf("expected 1 comment on line 6, got %d", len(fr.LineComments[6]))
+	}
+	if fr.LineComments[6][0].ExternalID != "ext-100" {
+		t.Errorf("expected remote comment to remain, got ExternalID=%q", fr.LineComments[6][0].ExternalID)
+	}
+}
+
+func TestMergeImportedComments_SkipsAlreadyImported(t *testing.T) {
+	fr := &model.FileReview{
+		Path:         "main.go",
+		LineComments: map[int][]model.Comment{},
+	}
+	fr.AddLineComment(10, model.Comment{
+		ID:         "ext-200",
+		Content:    "looks wrong",
+		Side:       model.SideNew,
+		Author:     "bob",
+		ExternalID: "ext-200",
+	})
+
+	remote := map[int][]model.Comment{
+		10: {
+			{
+				ID:         "ext-200",
+				Content:    "looks wrong",
+				Side:       model.SideNew,
+				Author:     "bob",
+				ExternalID: "ext-200",
+			},
+		},
+	}
+
+	added := MergeImportedComments(fr, remote)
+	if added != 0 {
+		t.Errorf("expected 0 added (already exists), got %d", added)
+	}
+	if len(fr.LineComments[10]) != 1 {
+		t.Errorf("expected 1 comment, got %d", len(fr.LineComments[10]))
+	}
+}

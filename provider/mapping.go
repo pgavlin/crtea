@@ -70,6 +70,44 @@ func ImportConversation(comments []ConversationComment) []model.ConversationComm
 	return result
 }
 
+// MergeImportedComments adds remote comments to a file review, deduplicating
+// against existing comments by ExternalID. It also replaces submitted local
+// comments that match a remote comment (same line, side, author, content),
+// which happens when a locally-submitted comment is fetched back from the server.
+func MergeImportedComments(fr *model.FileReview, lineComments map[int][]model.Comment) int {
+	added := 0
+	for line, cs := range lineComments {
+		for _, c := range cs {
+			// Skip if already imported (by ExternalID)
+			found := false
+			for _, existing := range fr.LineComments[line] {
+				if existing.ExternalID == c.ExternalID {
+					found = true
+					break
+				}
+			}
+			if found {
+				continue
+			}
+
+			// Remove submitted local duplicates (same content/author/side, no ExternalID)
+			existing := fr.LineComments[line]
+			filtered := existing[:0]
+			for _, e := range existing {
+				if e.Submitted && e.ExternalID == "" && e.Author == c.Author && e.Content == c.Content && e.Side == c.Side {
+					continue // drop the submitted local duplicate
+				}
+				filtered = append(filtered, e)
+			}
+			fr.LineComments[line] = filtered
+
+			fr.AddLineComment(line, c)
+			added++
+		}
+	}
+	return added
+}
+
 // ExportComments converts local model comments into provider comment drafts.
 // Only exports comments that have not been submitted and belong to the reviewer.
 func ExportComments(session *model.ReviewSession, reviewer string) []CommentDraft {

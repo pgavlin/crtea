@@ -303,21 +303,7 @@ func runWithProvider(backend vcs.Backend, p provider.Provider, id string, th the
 		imported := provider.ImportComments(comments)
 		for path, lineComments := range imported {
 			fr := session.GetOrCreateFileReview(path, model.FileModified)
-			for line, cs := range lineComments {
-				for _, c := range cs {
-					// Skip if already imported (by ExternalID)
-					found := false
-					for _, existing := range fr.LineComments[line] {
-						if existing.ExternalID == c.ExternalID {
-							found = true
-							break
-						}
-					}
-					if !found {
-						fr.AddLineComment(line, c)
-					}
-				}
-			}
+			provider.MergeImportedComments(fr, lineComments)
 		}
 	}
 

@@ -1423,21 +1423,7 @@ func (a *App) refreshFromProvider() tea.Cmd {
 		imported := provider.ImportComments(result.NewComments)
 		for path, lineComments := range imported {
 			fr := a.session.GetOrCreateFileReview(path, model.FileModified)
-			for line, cs := range lineComments {
-				for _, c := range cs {
-					found := false
-					for _, existing := range fr.LineComments[line] {
-						if existing.ExternalID == c.ExternalID {
-							found = true
-							break
-						}
-					}
-					if !found {
-						fr.AddLineComment(line, c)
-						newCount++
-					}
-				}
-			}
+			newCount += provider.MergeImportedComments(fr, lineComments)
 		}
 	}
 
