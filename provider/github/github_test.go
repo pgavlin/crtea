@@ -290,6 +290,23 @@ func TestParseIssueComment(t *testing.T) {
 	}
 }
 
+func TestExportSide(t *testing.T) {
+	tests := []struct {
+		side string
+		want string
+	}{
+		{"new", "RIGHT"},
+		{"old", "LEFT"},
+		{"", "RIGHT"},
+	}
+	for _, tt := range tests {
+		got := exportSide(tt.side)
+		if got != tt.want {
+			t.Errorf("exportSide(%q) = %q, want %q", tt.side, got, tt.want)
+		}
+	}
+}
+
 func TestExportReviewEvent(t *testing.T) {
 	tests := []struct {
 		state provider.ReviewState

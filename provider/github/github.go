@@ -199,14 +199,14 @@ func (g *GitHub) SubmitReview(id string, review provider.SubmitReviewRequest) er
 			gc := map[string]any{
 				"path": c.Path,
 				"body": c.Body,
-				"side": strings.ToUpper(c.Side),
+				"side": exportSide(c.Side),
 			}
 			if c.Line > 0 {
 				gc["line"] = c.Line
 			}
 			if c.StartLine > 0 {
 				gc["start_line"] = c.StartLine
-				gc["start_side"] = strings.ToUpper(c.StartSide)
+				gc["start_side"] = exportSide(c.StartSide)
 			}
 			ghComments = append(ghComments, gc)
 		}
@@ -333,6 +333,18 @@ func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error) {
 	}
 
 	return result, nil
+}
+
+// exportSide maps provider side ("new"/"old") to GitHub side ("RIGHT"/"LEFT").
+func exportSide(side string) string {
+	switch side {
+	case "new":
+		return "RIGHT"
+	case "old":
+		return "LEFT"
+	default:
+		return "RIGHT"
+	}
 }
 
 // exportReviewEvent maps provider.ReviewState to a GitHub review event string.
