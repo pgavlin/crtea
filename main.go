@@ -1,15 +1,15 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"fmt"
 	"os"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/urfave/cli/v3"
 
 	"github.com/pgavlin/crtea/model"
-	"github.com/pgavlin/crtea/output"
 	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
@@ -53,66 +53,60 @@ func (w *appWrapper) View() tea.View {
 }
 
 func main() {
-	themeFlag := flag.String("theme", "", "color theme: dark or light")
-	stdoutFlag := flag.Bool("stdout", false, "export comments to stdout on exit")
-	revisions := flag.String("revisions", "", "review specific commits (e.g. main~5..HEAD)")
-	flag.Parse()
+	cmd := &cli.Command{
+		Name:  "crtea",
+		Usage: "Interactive terminal code review tool",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "theme",
+				Aliases: []string{"t"},
+				Usage:   "color theme: dark, light, glamour-dark, glamour-light (auto-detected if omitted)",
+			},
+&cli.StringFlag{
+				Name:    "revisions",
+				Aliases: []string{"r"},
+				Usage:   "review specific commits (e.g. main~5..HEAD)",
+			},
+		},
+		Action: run,
+	}
 
-	dir, err := os.Getwd()
-	if err != nil {
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, cmd *cli.Command) error {
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
 	}
 
 	backend, err := vcs.NewGitBackend(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
-	// Initialize persistence
 	store, err := persistence.NewFileStore()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing session store: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("initializing session store: %w", err)
 	}
 
 	// Select theme and syntax highlighting style
-	var th theme.Theme
-	chromaStyle := "monokai"
-	switch *themeFlag {
-	case "dark":
-		th = theme.Dark()
-	case "light":
-		th = theme.Light()
-		chromaStyle = "github"
-	case "glamour-dark":
-		th = theme.GlamourDark()
-	case "glamour-light":
-		th = theme.GlamourLight()
-		chromaStyle = "github"
-	default:
-		// Auto-detect based on terminal background color
-		if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
-			th = theme.Dark()
-		} else {
-			th = theme.Light()
-			chromaStyle = "github"
-		}
-	}
+	th, chromaStyle := selectTheme(cmd.String("theme"))
 	highlighter := syntax.NewHighlighter(chromaStyle)
 
 	var app ui.App
-	if *revisions != "" {
+	if revisions := cmd.String("revisions"); revisions != "" {
 		info := backend.Info()
-		files, err := backend.GetRevisionDiff(*revisions)
+		files, err := backend.GetRevisionDiff(revisions)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting diff: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("getting diff: %w", err)
 		}
 		if len(files) == 0 {
 			fmt.Println("No changes to review.")
-			os.Exit(0)
+			return nil
 		}
 		highlighter.HighlightFiles(files)
 
@@ -133,12 +127,26 @@ func main() {
 	p := tea.NewProgram(w)
 
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
-	// If --stdout, print comments as markdown
-	if *stdoutFlag && w.session != nil && w.session.TotalComments() > 0 {
-		fmt.Fprint(os.Stdout, output.GenerateMarkdown(w.session))
+	return nil
+}
+
+func selectTheme(name string) (theme.Theme, string) {
+	switch name {
+	case "dark":
+		return theme.Dark(), "monokai"
+	case "light":
+		return theme.Light(), "github"
+	case "glamour-dark":
+		return theme.GlamourDark(), "monokai"
+	case "glamour-light":
+		return theme.GlamourLight(), "github"
+	default:
+		if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
+			return theme.Dark(), "monokai"
+		}
+		return theme.Light(), "github"
 	}
 }
