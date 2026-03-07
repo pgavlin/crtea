@@ -13,20 +13,20 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// AppPhase tracks whether we're in the commit picker or review mode.
-type AppPhase int
+// appPhase tracks whether we're in the commit picker or review mode.
+type appPhase int
 
 const (
-	PhaseReview AppPhase = iota
-	PhasePicker
+	phaseReview appPhase = iota
+	phasePicker
 )
 
 const worktreeKey = "worktree"
 
-// PickerItem represents one selectable row in the commit picker.
-type PickerItem struct {
-	IsWorkingTree bool
-	Commit        vcs.CommitInfo
+// pickerItem represents one selectable row in the commit picker.
+type pickerItem struct {
+	isWorkingTree bool
+	commit        vcs.CommitInfo
 }
 
 // commitListEntry represents one row in the review commit list panel.
@@ -77,7 +77,7 @@ func (a App) pickerConfirm() (tea.Model, tea.Cmd) {
 	var commits []vcs.CommitInfo
 	for i := 1; i < len(a.pickerItems); i++ {
 		if a.pickerSelected[i] {
-			commits = append(commits, a.pickerItems[i].Commit)
+			commits = append(commits, a.pickerItems[i].commit)
 		}
 	}
 
@@ -116,7 +116,7 @@ func (a App) pickerConfirm() (tea.Model, tea.Cmd) {
 	a.diffFiles = a.mergeEnabledDiffs()
 
 	if len(a.diffFiles) == 0 {
-		a.setMessage("No changes found", MessageWarning)
+		a.setMessage("No changes found", messageWarning)
 		return &a, nil
 	}
 
@@ -135,9 +135,9 @@ func (a App) pickerConfirm() (tea.Model, tea.Cmd) {
 	}
 
 	a.session = session
-	a.phase = PhaseReview
-	a.inputMode = ModeNormal
-	a.focusedPanel = PanelDiff
+	a.phase = phaseReview
+	a.inputMode = modeNormal
+	a.focusedPanel = panelDiff
 	a.showFileList = true
 	a.rebuildFileTree()
 	a.rebuildAnnotations()
@@ -194,7 +194,7 @@ func (a *App) renderPicker() string {
 			checkStyle = checkStyle.Bold(true)
 		}
 
-		if item.IsWorkingTree {
+		if item.isWorkingTree {
 			label := "Working tree changes"
 			labelStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
 			if isCursor {
@@ -203,7 +203,7 @@ func (a *App) renderPicker() string {
 			b.WriteString(cursorStyle.Render(cursor) + checkStyle.Render(check) + " " + labelStyle.Render(label))
 			b.WriteString("\n")
 		} else {
-			c := item.Commit
+			c := item.commit
 			hashStyle := lipgloss.NewStyle().Foreground(th.FileModified)
 			summaryStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
 			metaStyle := lipgloss.NewStyle().Foreground(th.FgDim)
@@ -246,15 +246,15 @@ func (a *App) renderPicker() string {
 	if a.message != nil {
 		b.WriteString("\n")
 		msgStyle := lipgloss.NewStyle().Bold(true)
-		switch a.message.Level {
-		case MessageWarning:
+		switch a.message.level {
+		case messageWarning:
 			msgStyle = msgStyle.Foreground(th.MessageWarnBg)
-		case MessageError:
+		case messageError:
 			msgStyle = msgStyle.Foreground(th.MessageErrorBg)
 		default:
 			msgStyle = msgStyle.Foreground(th.MessageInfoBg)
 		}
-		b.WriteString("  " + msgStyle.Render(a.message.Text))
+		b.WriteString("  " + msgStyle.Render(a.message.text))
 	}
 
 	return b.String()

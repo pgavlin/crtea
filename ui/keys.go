@@ -15,22 +15,22 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Clear message on any keypress
 	a.clearMessage()
 
-	if a.phase == PhasePicker {
+	if a.phase == phasePicker {
 		return a.handlePickerKey(msg)
 	}
 
 	switch a.inputMode {
-	case ModeHelp:
+	case modeHelp:
 		return a.handleHelpKey(msg)
-	case ModeCommand:
+	case modeCommand:
 		return a.handleCommandKey(msg)
-	case ModeSearch:
+	case modeSearch:
 		return a.handleSearchKey(msg)
-	case ModeComment:
+	case modeComment:
 		return a.handleCommentKey(msg)
-	case ModeConfirm:
+	case modeConfirm:
 		return a.handleConfirmKey(msg)
-	case ModeVisualSelect:
+	case modeVisualSelect:
 		return a.handleVisualKey(msg)
 	default:
 		return a.handleNormalKey(msg)
@@ -56,7 +56,7 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Code == 'q' && key.Mod == 0:
 		if a.dirty && !a.quitWarned {
 			a.quitWarned = true
-			a.setMessage("Unsaved changes. Press q again to quit, or :w to save.", MessageWarning)
+			a.setMessage("Unsaved changes. Press q again to quit, or :w to save.", messageWarning)
 			return &a, nil
 		}
 		return &a, func() tea.Msg { return DoneMsg{} }
@@ -80,13 +80,13 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Code == 'b' && key.Mod == tea.ModCtrl, key.Code == tea.KeyPgUp:
 		a.cursorUp(a.diffViewportHeight())
 	case key.Code == 'h' && key.Mod == 0, key.Code == tea.KeyLeft:
-		if a.focusedPanel == PanelDiff {
+		if a.focusedPanel == panelDiff {
 			if a.scrollX > 0 {
 				a.scrollX--
 			}
 		}
 	case key.Code == 'l' && key.Mod == 0, key.Code == tea.KeyRight:
-		if a.focusedPanel == PanelDiff {
+		if a.focusedPanel == panelDiff {
 			a.scrollX++
 		}
 
@@ -117,27 +117,27 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Code == tea.KeyTab:
 		hasCommitList := a.commitListHeight() > 0
 		switch a.focusedPanel {
-		case PanelDiff:
+		case panelDiff:
 			if a.showFileList {
-				a.focusedPanel = PanelFileList
+				a.focusedPanel = panelFileList
 			} else if hasCommitList {
-				a.focusedPanel = PanelCommitList
+				a.focusedPanel = panelCommitList
 			}
-		case PanelFileList:
+		case panelFileList:
 			if hasCommitList {
-				a.focusedPanel = PanelCommitList
+				a.focusedPanel = panelCommitList
 			} else {
-				a.focusedPanel = PanelDiff
+				a.focusedPanel = panelDiff
 			}
-		case PanelCommitList:
-			a.focusedPanel = PanelDiff
+		case panelCommitList:
+			a.focusedPanel = panelDiff
 		}
 
 	// Enter: jump to file / toggle dir (file list) or toggle expand (diff)
 	case key.Code == tea.KeyEnter:
-		if a.focusedPanel == PanelFileList {
+		if a.focusedPanel == panelFileList {
 			a.fileListEnter()
-		} else if a.focusedPanel == PanelDiff {
+		} else if a.focusedPanel == panelDiff {
 			a.toggleExpandAtCursor()
 		}
 
@@ -163,7 +163,7 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Toggle commit (in commit list)
 	case key.Code == ' ':
-		if a.focusedPanel == PanelCommitList {
+		if a.focusedPanel == panelCommitList {
 			a.toggleCommitAtCursor()
 		}
 
@@ -173,10 +173,10 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Command/search
 	case key.Text == ":":
-		a.inputMode = ModeCommand
+		a.inputMode = modeCommand
 		a.commandBuffer = ""
 	case key.Text == "/":
-		a.inputMode = ModeSearch
+		a.inputMode = modeSearch
 		a.searchBuffer = ""
 	case key.Code == 'n' && key.Mod == 0:
 		a.searchNext(true)
@@ -185,7 +185,7 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Help
 	case key.Text == "?":
-		a.inputMode = ModeHelp
+		a.inputMode = modeHelp
 	}
 
 	return &a, nil
@@ -209,13 +209,13 @@ func (a App) handlePendingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch key.Code {
 		case 'e':
 			a.showFileList = !a.showFileList
-			if !a.showFileList && a.focusedPanel == PanelFileList {
-				a.focusedPanel = PanelDiff
+			if !a.showFileList && a.focusedPanel == panelFileList {
+				a.focusedPanel = panelDiff
 			}
 		case 'h':
-			a.focusedPanel = PanelFileList
+			a.focusedPanel = panelFileList
 		case 'l':
-			a.focusedPanel = PanelDiff
+			a.focusedPanel = panelDiff
 		}
 	}
 
@@ -226,7 +226,7 @@ func (a App) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape, key.Code == 'q', key.Text == "?":
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 	}
 	return &a, nil
 }
@@ -235,18 +235,18 @@ func (a App) handleCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 		a.commandBuffer = ""
 	case key.Code == tea.KeyEnter:
 		cmd := a.executeCommand(a.commandBuffer)
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 		a.commandBuffer = ""
 		return &a, cmd
 	case key.Code == tea.KeyBackspace:
 		if len(a.commandBuffer) > 0 {
 			a.commandBuffer = a.commandBuffer[:len(a.commandBuffer)-1]
 		} else {
-			a.inputMode = ModeNormal
+			a.inputMode = modeNormal
 		}
 	default:
 		if key.Text != "" {
@@ -260,17 +260,17 @@ func (a App) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 		a.searchBuffer = ""
 	case key.Code == tea.KeyEnter:
 		a.lastSearch = a.searchBuffer
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 		a.searchNext(true)
 	case key.Code == tea.KeyBackspace:
 		if len(a.searchBuffer) > 0 {
 			a.searchBuffer = a.searchBuffer[:len(a.searchBuffer)-1]
 		} else {
-			a.inputMode = ModeNormal
+			a.inputMode = modeNormal
 		}
 	default:
 		if key.Text != "" {
@@ -284,7 +284,7 @@ func (a App) handleCommentKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 		a.commentBuffer = ""
 		a.editingID = ""
 		a.commentLineRange = nil
@@ -294,7 +294,7 @@ func (a App) handleCommentKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.commentCursor++
 	case key.Code == tea.KeyEnter:
 		a.saveComment()
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 	case key.Code == tea.KeyTab:
 		a.commentType = a.commentType.Next()
 	case key.Code == tea.KeyBackspace:
@@ -315,10 +315,10 @@ func (a App) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == 'y', key.Code == 'Y':
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 		// Execute confirmed action
 	case key.Code == tea.KeyEscape, key.Code == 'n', key.Code == 'N':
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 	}
 	return &a, nil
 }
@@ -327,7 +327,7 @@ func (a App) handleVisualKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape, key.Code == 'v':
-		a.inputMode = ModeNormal
+		a.inputMode = modeNormal
 		a.commentLineRange = nil
 	case key.Code == 'j', key.Code == tea.KeyDown:
 		a.cursorDown(1)
@@ -342,7 +342,7 @@ func (a App) handleVisualKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // Navigation methods
 
 func (a *App) cursorDown(n int) {
-	if a.focusedPanel == PanelFileList {
+	if a.focusedPanel == panelFileList {
 		a.fileListCursor += n
 		if a.fileListCursor >= len(a.fileTreeRows) {
 			a.fileListCursor = len(a.fileTreeRows) - 1
@@ -352,7 +352,7 @@ func (a *App) cursorDown(n int) {
 		}
 		return
 	}
-	if a.focusedPanel == PanelCommitList {
+	if a.focusedPanel == panelCommitList {
 		items := a.commitListItems()
 		a.commitCursor += n
 		if a.commitCursor >= len(items) {
@@ -375,14 +375,14 @@ func (a *App) cursorDown(n int) {
 }
 
 func (a *App) cursorUp(n int) {
-	if a.focusedPanel == PanelFileList {
+	if a.focusedPanel == panelFileList {
 		a.fileListCursor -= n
 		if a.fileListCursor < 0 {
 			a.fileListCursor = 0
 		}
 		return
 	}
-	if a.focusedPanel == PanelCommitList {
+	if a.focusedPanel == panelCommitList {
 		a.commitCursor -= n
 		if a.commitCursor < 0 {
 			a.commitCursor = 0
@@ -432,7 +432,7 @@ func (a *App) jumpToFile(fileIdx int) {
 		return
 	}
 	for i, ann := range a.annotations {
-		if ann.Type == AnnFileHeader && ann.FileIdx == fileIdx {
+		if ann.Type == annFileHeader && ann.FileIdx == fileIdx {
 			a.cursorLine = i
 			a.ensureCursorVisible()
 			return
@@ -443,7 +443,7 @@ func (a *App) jumpToFile(fileIdx int) {
 func (a *App) jumpToSourceLine(lineNo int) {
 	// Find the annotation matching this source line number
 	for i, ann := range a.annotations {
-		if ann.Type == AnnDiffLine && ann.NewLineNo == lineNo {
+		if ann.Type == annDiffLine && ann.NewLineNo == lineNo {
 			a.cursorLine = i
 			a.ensureCursorVisible()
 			return
@@ -454,7 +454,7 @@ func (a *App) jumpToSourceLine(lineNo int) {
 func (a *App) nextFile() {
 	currentFile := a.currentFileIdx()
 	for i := a.cursorLine + 1; i < len(a.annotations); i++ {
-		if a.annotations[i].Type == AnnFileHeader && a.annotations[i].FileIdx > currentFile {
+		if a.annotations[i].Type == annFileHeader && a.annotations[i].FileIdx > currentFile {
 			a.cursorLine = i
 			a.ensureCursorVisible()
 			return
@@ -465,7 +465,7 @@ func (a *App) nextFile() {
 func (a *App) prevFile() {
 	currentFile := a.currentFileIdx()
 	for i := a.cursorLine - 1; i >= 0; i-- {
-		if a.annotations[i].Type == AnnFileHeader && a.annotations[i].FileIdx < currentFile {
+		if a.annotations[i].Type == annFileHeader && a.annotations[i].FileIdx < currentFile {
 			a.cursorLine = i
 			a.ensureCursorVisible()
 			return
@@ -475,7 +475,7 @@ func (a *App) prevFile() {
 
 func (a *App) nextHunk() {
 	for i := a.cursorLine + 1; i < len(a.annotations); i++ {
-		if a.annotations[i].Type == AnnHunkHeader {
+		if a.annotations[i].Type == annHunkHeader {
 			a.cursorLine = i
 			a.ensureCursorVisible()
 			return
@@ -485,7 +485,7 @@ func (a *App) nextHunk() {
 
 func (a *App) prevHunk() {
 	for i := a.cursorLine - 1; i >= 0; i-- {
-		if a.annotations[i].Type == AnnHunkHeader {
+		if a.annotations[i].Type == annHunkHeader {
 			a.cursorLine = i
 			a.ensureCursorVisible()
 			return
@@ -515,7 +515,7 @@ func (a *App) fileListEnter() {
 	} else {
 		// Jump to file in diff view
 		a.jumpToFile(row.Node.FileIdx)
-		a.focusedPanel = PanelDiff
+		a.focusedPanel = panelDiff
 	}
 }
 
@@ -528,14 +528,14 @@ func (a *App) toggleExpandAtCursor() {
 	ann := a.annotations[a.cursorLine]
 
 	switch ann.Type {
-	case AnnExpander:
-		a.expandGap(ann.GapID)
-	case AnnExpandedContext:
-		a.collapseGap(ann.GapID)
+	case annExpander:
+		a.expandGap(ann.gapID)
+	case annExpandedContext:
+		a.collapseGap(ann.gapID)
 	}
 }
 
-func (a *App) expandGap(gid GapID) {
+func (a *App) expandGap(gid gapID) {
 	if _, ok := a.expandedGaps[gid]; ok {
 		return // already expanded
 	}
@@ -557,7 +557,7 @@ func (a *App) expandGap(gid GapID) {
 
 	lines, err := a.vcs.FetchContextLines(file.DisplayPath(), file.Status, startLine, endLine)
 	if err != nil {
-		a.setMessage("Failed to expand context: "+err.Error(), MessageError)
+		a.setMessage("Failed to expand context: "+err.Error(), messageError)
 		return
 	}
 
@@ -565,7 +565,7 @@ func (a *App) expandGap(gid GapID) {
 	a.rebuildAnnotations()
 }
 
-func (a *App) collapseGap(gid GapID) {
+func (a *App) collapseGap(gid gapID) {
 	if _, ok := a.expandedGaps[gid]; !ok {
 		return
 	}
@@ -588,9 +588,9 @@ func (a *App) toggleReviewed() {
 	fr.Reviewed = !fr.Reviewed
 	a.dirty = true
 	if fr.Reviewed {
-		a.setMessage(fmt.Sprintf("Marked %s as reviewed", path), MessageInfo)
+		a.setMessage(fmt.Sprintf("Marked %s as reviewed", path), messageInfo)
 	} else {
-		a.setMessage(fmt.Sprintf("Unmarked %s as reviewed", path), MessageInfo)
+		a.setMessage(fmt.Sprintf("Unmarked %s as reviewed", path), messageInfo)
 	}
 }
 
@@ -601,8 +601,8 @@ func (a *App) enterLineComment() {
 		return
 	}
 	ann := a.annotations[a.cursorLine]
-	if ann.Type != AnnDiffLine {
-		a.setMessage("Move cursor to a diff line to comment", MessageWarning)
+	if ann.Type != annDiffLine {
+		a.setMessage("Move cursor to a diff line to comment", messageWarning)
 		return
 	}
 
@@ -621,7 +621,7 @@ func (a *App) enterLineComment() {
 	a.commentSide = side
 	a.editingID = ""
 	a.commentLineRange = nil
-	a.inputMode = ModeComment
+	a.inputMode = modeComment
 }
 
 func (a *App) enterFileComment() {
@@ -635,7 +635,7 @@ func (a *App) enterFileComment() {
 	a.commentLine = 0
 	a.editingID = ""
 	a.commentLineRange = nil
-	a.inputMode = ModeComment
+	a.inputMode = modeComment
 }
 
 func (a *App) editCommentAtCursor() {
@@ -653,7 +653,7 @@ func (a *App) editCommentAtCursor() {
 	}
 
 	switch ann.Type {
-	case AnnFileComment:
+	case annFileComment:
 		if ann.CommentIdx < len(fr.FileComments) {
 			c := fr.FileComments[ann.CommentIdx]
 			a.commentBuffer = c.Content
@@ -661,9 +661,9 @@ func (a *App) editCommentAtCursor() {
 			a.commentType = c.Type
 			a.commentIsFile = true
 			a.editingID = c.ID
-			a.inputMode = ModeComment
+			a.inputMode = modeComment
 		}
-	case AnnLineComment:
+	case annLineComment:
 		lineNo := a.getCommentLineNo(ann)
 		if comments, ok := fr.LineComments[lineNo]; ok && ann.CommentIdx < len(comments) {
 			c := comments[ann.CommentIdx]
@@ -674,14 +674,14 @@ func (a *App) editCommentAtCursor() {
 			a.commentLine = lineNo
 			a.commentSide = c.Side
 			a.editingID = c.ID
-			a.inputMode = ModeComment
+			a.inputMode = modeComment
 		}
 	default:
-		a.setMessage("Move cursor to a comment to edit", MessageWarning)
+		a.setMessage("Move cursor to a comment to edit", messageWarning)
 	}
 }
 
-func (a *App) getCommentLineNo(ann AnnotatedLine) int {
+func (a *App) getCommentLineNo(ann annotatedLine) int {
 	if ann.Side == model.SideOld && ann.OldLineNo > 0 {
 		return ann.OldLineNo
 	}
@@ -769,14 +769,14 @@ func (a *App) deleteCommentAtCursor() {
 	}
 
 	switch ann.Type {
-	case AnnFileComment:
+	case annFileComment:
 		if ann.CommentIdx < len(fr.FileComments) {
 			fr.FileComments = append(fr.FileComments[:ann.CommentIdx], fr.FileComments[ann.CommentIdx+1:]...)
 			a.dirty = true
 			a.rebuildAnnotations()
-			a.setMessage("Comment deleted", MessageInfo)
+			a.setMessage("Comment deleted", messageInfo)
 		}
-	case AnnLineComment:
+	case annLineComment:
 		lineNo := a.getCommentLineNo(ann)
 		if comments, ok := fr.LineComments[lineNo]; ok && ann.CommentIdx < len(comments) {
 			fr.LineComments[lineNo] = append(comments[:ann.CommentIdx], comments[ann.CommentIdx+1:]...)
@@ -785,10 +785,10 @@ func (a *App) deleteCommentAtCursor() {
 			}
 			a.dirty = true
 			a.rebuildAnnotations()
-			a.setMessage("Comment deleted", MessageInfo)
+			a.setMessage("Comment deleted", messageInfo)
 		}
 	default:
-		a.setMessage("Move cursor to a comment to delete", MessageWarning)
+		a.setMessage("Move cursor to a comment to delete", messageWarning)
 	}
 }
 
@@ -799,8 +799,8 @@ func (a *App) enterVisualMode() {
 		return
 	}
 	ann := a.annotations[a.cursorLine]
-	if ann.Type != AnnDiffLine {
-		a.setMessage("Move cursor to a diff line for visual selection", MessageWarning)
+	if ann.Type != annDiffLine {
+		a.setMessage("Move cursor to a diff line for visual selection", messageWarning)
 		return
 	}
 	lineNo := ann.NewLineNo
@@ -811,7 +811,7 @@ func (a *App) enterVisualMode() {
 	}
 	a.visualAnchor = lineNo
 	a.visualAnchorSide = side
-	a.inputMode = ModeVisualSelect
+	a.inputMode = modeVisualSelect
 }
 
 func (a *App) enterCommentFromVisual() {
@@ -819,7 +819,7 @@ func (a *App) enterCommentFromVisual() {
 		return
 	}
 	ann := a.annotations[a.cursorLine]
-	if ann.Type != AnnDiffLine {
+	if ann.Type != annDiffLine {
 		return
 	}
 
@@ -842,7 +842,7 @@ func (a *App) enterCommentFromVisual() {
 	a.commentLine = start
 	a.commentSide = a.visualAnchorSide
 	a.editingID = ""
-	a.inputMode = ModeComment
+	a.inputMode = modeComment
 }
 
 // Search
@@ -864,11 +864,11 @@ func (a *App) searchNext(forward bool) {
 		}
 		ann := a.annotations[idx]
 		switch ann.Type {
-		case AnnFileHeader:
+		case annFileHeader:
 			if ann.FileIdx >= 0 && ann.FileIdx < len(a.diffFiles) {
 				return strings.Contains(strings.ToLower(a.diffFiles[ann.FileIdx].DisplayPath()), pattern)
 			}
-		case AnnDiffLine:
+		case annDiffLine:
 			if ann.FileIdx >= 0 && ann.FileIdx < len(a.diffFiles) {
 				file := a.diffFiles[ann.FileIdx]
 				if ann.HunkIdx >= 0 && ann.HunkIdx < len(file.Hunks) {
@@ -895,7 +895,7 @@ func (a *App) searchNext(forward bool) {
 			if search(i) {
 				a.cursorLine = i
 				a.ensureCursorVisible()
-				a.setMessage("Search wrapped to top", MessageInfo)
+				a.setMessage("Search wrapped to top", messageInfo)
 				return
 			}
 		}
@@ -911,13 +911,13 @@ func (a *App) searchNext(forward bool) {
 			if search(i) {
 				a.cursorLine = i
 				a.ensureCursorVisible()
-				a.setMessage("Search wrapped to bottom", MessageInfo)
+				a.setMessage("Search wrapped to bottom", messageInfo)
 				return
 			}
 		}
 	}
 
-	a.setMessage("Pattern not found: "+a.lastSearch, MessageWarning)
+	a.setMessage("Pattern not found: "+a.lastSearch, messageWarning)
 }
 
 // Command execution
@@ -928,7 +928,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	case "q", "quit":
 		if a.dirty && !a.quitWarned {
 			a.quitWarned = true
-			a.setMessage("Unsaved changes. Use :q! to force quit, or :w to save.", MessageWarning)
+			a.setMessage("Unsaved changes. Use :q! to force quit, or :w to save.", messageWarning)
 			return nil
 		}
 		return func() tea.Msg { return DoneMsg{} }
@@ -936,9 +936,9 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		return func() tea.Msg { return DoneMsg{} }
 	case "w", "write":
 		if _, err := a.store.Save(a.session); err != nil {
-			a.setMessage("Save failed: "+err.Error(), MessageError)
+			a.setMessage("Save failed: "+err.Error(), messageError)
 		} else {
-			a.setMessage("Session saved", MessageInfo)
+			a.setMessage("Session saved", messageInfo)
 			a.dirty = false
 		}
 		return nil
@@ -949,7 +949,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	case "e", "reload":
 		files, err := a.vcs.GetWorkingTreeDiff()
 		if err != nil {
-			a.setMessage("Reload failed: "+err.Error(), MessageError)
+			a.setMessage("Reload failed: "+err.Error(), messageError)
 			return nil
 		}
 		if a.highlighter != nil {
@@ -958,7 +958,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		a.diffFiles = files
 		a.rebuildFileTree()
 		a.rebuildAnnotations()
-		a.setMessage(fmt.Sprintf("Reloaded %d files", len(files)), MessageInfo)
+		a.setMessage(fmt.Sprintf("Reloaded %d files", len(files)), messageInfo)
 		return nil
 	case "clip", "export":
 		return a.exportComments()
@@ -969,7 +969,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		}
 		a.dirty = true
 		a.rebuildAnnotations()
-		a.setMessage("All comments cleared", MessageInfo)
+		a.setMessage("All comments cleared", messageInfo)
 		return nil
 	}
 
@@ -977,27 +977,27 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		opt := strings.TrimPrefix(cmd, "set ")
 		switch opt {
 		case "wrap":
-			a.setMessage("Line wrapping enabled", MessageInfo)
+			a.setMessage("Line wrapping enabled", messageInfo)
 		case "nowrap":
-			a.setMessage("Line wrapping disabled", MessageInfo)
+			a.setMessage("Line wrapping disabled", messageInfo)
 		default:
-			a.setMessage("Unknown option: "+opt, MessageWarning)
+			a.setMessage("Unknown option: "+opt, messageWarning)
 		}
 		return nil
 	}
 
-	a.setMessage("Unknown command: "+cmd, MessageWarning)
+	a.setMessage("Unknown command: "+cmd, messageWarning)
 	return nil
 }
 
 func (a *App) exportComments() tea.Cmd {
 	total := a.session.TotalComments()
 	if total == 0 {
-		a.setMessage("No comments to export", MessageWarning)
+		a.setMessage("No comments to export", messageWarning)
 		return nil
 	}
 	md := output.GenerateMarkdown(a.session)
-	a.setMessage(fmt.Sprintf("Exported %d comments to clipboard", total), MessageInfo)
+	a.setMessage(fmt.Sprintf("Exported %d comments to clipboard", total), messageInfo)
 	return func() tea.Msg { return ClipboardMsg{Content: md} }
 }
 

@@ -16,41 +16,37 @@ import (
 	"github.com/pgavlin/crtea/vcs"
 )
 
-// InputMode tracks what kind of input the app is currently processing.
-type InputMode int
+type inputMode int
 
 const (
-	ModeNormal InputMode = iota
-	ModeCommand
-	ModeSearch
-	ModeComment
-	ModeHelp
-	ModeConfirm
-	ModeVisualSelect
+	modeNormal inputMode = iota
+	modeCommand
+	modeSearch
+	modeComment
+	modeHelp
+	modeConfirm
+	modeVisualSelect
 )
 
-// FocusedPanel tracks which panel has focus.
-type FocusedPanel int
+type focusedPanel int
 
 const (
-	PanelDiff FocusedPanel = iota
-	PanelFileList
-	PanelCommitList
+	panelDiff focusedPanel = iota
+	panelFileList
+	panelCommitList
 )
 
-// MessageLevel indicates the severity of a status message.
-type MessageLevel int
+type messageLevel int
 
 const (
-	MessageInfo MessageLevel = iota
-	MessageWarning
-	MessageError
+	messageInfo messageLevel = iota
+	messageWarning
+	messageError
 )
 
-// StatusMessage holds a message to display in the status bar.
-type StatusMessage struct {
-	Text  string
-	Level MessageLevel
+type statusMessage struct {
+	text  string
+	level messageLevel
 }
 
 // DoneMsg is emitted when the component wants to close.
@@ -71,8 +67,8 @@ type App struct {
 	highlighter *syntax.Highlighter
 
 	// Phase
-	phase          AppPhase
-	pickerItems    []PickerItem
+	phase          appPhase
+	pickerItems    []pickerItem
 	pickerCursor   int
 	pickerSelected map[int]bool
 
@@ -84,8 +80,8 @@ type App struct {
 	commitCursor     int
 
 	// UI state
-	inputMode    InputMode
-	focusedPanel FocusedPanel
+	inputMode    inputMode
+	focusedPanel focusedPanel
 	showFileList bool
 
 	// Window dimensions
@@ -93,15 +89,15 @@ type App struct {
 	height int
 
 	// Diff view state
-	annotations  []AnnotatedLine
+	annotations  []annotatedLine
 	cursorLine   int
 	scrollOffset int
 	scrollX      int
-	expandedGaps map[GapID][]model.DiffLine
+	expandedGaps map[gapID][]model.DiffLine
 
 	// File list state
-	fileTree       *FileTreeNode
-	fileTreeRows   []FileTreeRow
+	fileTree       *fileTreeNode
+	fileTreeRows   []fileTreeRow
 	collapsedDirs  map[string]bool
 	fileListCursor int
 	fileListScroll int
@@ -124,7 +120,7 @@ type App struct {
 	commentLineRange *model.LineRange
 
 	// Messages
-	message    *StatusMessage
+	message    *statusMessage
 	dirty      bool
 	quitWarned bool
 
@@ -147,10 +143,10 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 		session:       session,
 		diffFiles:     files,
 		highlighter:   hl,
-		inputMode:     ModeNormal,
-		focusedPanel:  PanelDiff,
+		inputMode:     modeNormal,
+		focusedPanel:  panelDiff,
 		showFileList:  true,
-		expandedGaps:  make(map[GapID][]model.DiffLine),
+		expandedGaps:  make(map[gapID][]model.DiffLine),
 		collapsedDirs: make(map[string]bool),
 		store:         store,
 		theme:         th,
@@ -164,10 +160,10 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 func NewPickerApp(backend vcs.Backend, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
 	commits, _ := backend.GetRecentCommits(0, 30)
 
-	var items []PickerItem
-	items = append(items, PickerItem{IsWorkingTree: true})
+	var items []pickerItem
+	items = append(items, pickerItem{isWorkingTree: true})
 	for _, c := range commits {
-		items = append(items, PickerItem{Commit: c})
+		items = append(items, pickerItem{commit: c})
 	}
 
 	return App{
@@ -176,10 +172,10 @@ func NewPickerApp(backend vcs.Backend, th theme.Theme, hl *syntax.Highlighter, s
 		highlighter:    hl,
 		store:          store,
 		theme:          th,
-		phase:          PhasePicker,
+		phase:          phasePicker,
 		pickerItems:    items,
 		pickerSelected: make(map[int]bool),
-		expandedGaps:   make(map[GapID][]model.DiffLine),
+		expandedGaps:   make(map[gapID][]model.DiffLine),
 		collapsedDirs:  make(map[string]bool),
 	}
 }
@@ -190,7 +186,7 @@ func (a *App) rebuildFileTree() {
 }
 
 func (a *App) rebuildAnnotations() {
-	a.annotations = BuildAnnotations(a.diffFiles, a.session, a.expandedGaps, a.commentWrapWidth())
+	a.annotations = buildAnnotations(a.diffFiles, a.session, a.expandedGaps, a.commentWrapWidth())
 }
 
 // commentWrapWidth returns the available character width for comment text content.
@@ -236,7 +232,7 @@ func (a App) View() tea.View {
 		return tea.NewView("")
 	}
 
-	if a.phase == PhasePicker {
+	if a.phase == phasePicker {
 		return tea.NewView(a.renderPicker())
 	}
 
@@ -258,7 +254,7 @@ func (a App) View() tea.View {
 		contentHeight = 1
 	}
 
-	if a.inputMode == ModeHelp {
+	if a.inputMode == modeHelp {
 		b.WriteString(a.renderHelp(contentHeight))
 	} else if a.showFileList {
 		fileListWidth := a.fileListWidth()
@@ -314,8 +310,8 @@ func (a *App) currentFilePath() string {
 }
 
 // setMessage sets a status message.
-func (a *App) setMessage(text string, level MessageLevel) {
-	a.message = &StatusMessage{Text: text, Level: level}
+func (a *App) setMessage(text string, level messageLevel) {
+	a.message = &statusMessage{text: text, level: level}
 }
 
 // clearMessage clears the status message.
@@ -416,7 +412,7 @@ func (a *App) rebuildFromCommits() {
 			a.session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 		}
 	}
-	a.expandedGaps = make(map[GapID][]model.DiffLine)
+	a.expandedGaps = make(map[gapID][]model.DiffLine)
 	a.rebuildFileTree()
 	a.rebuildAnnotations()
 	if a.cursorLine >= len(a.annotations) {

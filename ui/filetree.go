@@ -7,26 +7,26 @@ import (
 	"github.com/pgavlin/crtea/model"
 )
 
-// FileTreeNode represents a node in the file tree (either a directory or a file).
-type FileTreeNode struct {
+// fileTreeNode represents a node in the file tree (either a directory or a file).
+type fileTreeNode struct {
 	Name     string          // base name of this segment
 	Path     string          // full path up to this node
 	FileIdx  int             // index into diffFiles, -1 for directories
-	Children []*FileTreeNode // sorted children
+	Children []*fileTreeNode // sorted children
 	IsDir    bool
 }
 
-// FileTreeRow is a flattened row in the visible file tree.
-type FileTreeRow struct {
-	Node   *FileTreeNode
+// fileTreeRow is a flattened row in the visible file tree.
+type fileTreeRow struct {
+	Node   *fileTreeNode
 	Depth  int
 	IsDir  bool
 	IsLast []bool // whether each ancestor (and self) is the last child at its level
 }
 
 // buildFileTree constructs a tree from the diff files.
-func buildFileTree(files []model.DiffFile) *FileTreeNode {
-	root := &FileTreeNode{Name: "", Path: "", FileIdx: -1, IsDir: true}
+func buildFileTree(files []model.DiffFile) *fileTreeNode {
+	root := &fileTreeNode{Name: "", Path: "", FileIdx: -1, IsDir: true}
 
 	for i, file := range files {
 		parts := strings.Split(file.DisplayPath(), "/")
@@ -36,7 +36,7 @@ func buildFileTree(files []model.DiffFile) *FileTreeNode {
 			fullPath := strings.Join(parts[:j+1], "/")
 
 			// Find or create child
-			var child *FileTreeNode
+			var child *fileTreeNode
 			for _, c := range node.Children {
 				if c.Name == part {
 					child = c
@@ -44,7 +44,7 @@ func buildFileTree(files []model.DiffFile) *FileTreeNode {
 				}
 			}
 			if child == nil {
-				child = &FileTreeNode{
+				child = &fileTreeNode{
 					Name:    part,
 					Path:    fullPath,
 					FileIdx: -1,
@@ -68,7 +68,7 @@ func buildFileTree(files []model.DiffFile) *FileTreeNode {
 	return root
 }
 
-func sortTree(node *FileTreeNode) {
+func sortTree(node *fileTreeNode) {
 	sort.Slice(node.Children, func(i, j int) bool {
 		a, b := node.Children[i], node.Children[j]
 		if a.IsDir != b.IsDir {
@@ -83,7 +83,7 @@ func sortTree(node *FileTreeNode) {
 
 // collapseChains merges single-child directories into their parent.
 // e.g. "ui" -> "components" -> file.go becomes "ui/components" -> file.go
-func collapseChains(node *FileTreeNode) {
+func collapseChains(node *fileTreeNode) {
 	for i, child := range node.Children {
 		if child.IsDir && len(child.Children) == 1 && child.Children[0].IsDir {
 			// Merge child into grandchild
@@ -98,8 +98,8 @@ func collapseChains(node *FileTreeNode) {
 }
 
 // flattenTree produces the visible rows from the tree, respecting collapsed state.
-func flattenTree(root *FileTreeNode, collapsed map[string]bool) []FileTreeRow {
-	var rows []FileTreeRow
+func flattenTree(root *fileTreeNode, collapsed map[string]bool) []fileTreeRow {
+	var rows []fileTreeRow
 	for i, child := range root.Children {
 		isLast := []bool{i == len(root.Children)-1}
 		flattenNode(child, 0, isLast, collapsed, &rows)
@@ -107,8 +107,8 @@ func flattenTree(root *FileTreeNode, collapsed map[string]bool) []FileTreeRow {
 	return rows
 }
 
-func flattenNode(node *FileTreeNode, depth int, isLast []bool, collapsed map[string]bool, rows *[]FileTreeRow) {
-	*rows = append(*rows, FileTreeRow{
+func flattenNode(node *fileTreeNode, depth int, isLast []bool, collapsed map[string]bool, rows *[]fileTreeRow) {
+	*rows = append(*rows, fileTreeRow{
 		Node:   node,
 		Depth:  depth,
 		IsDir:  node.IsDir,

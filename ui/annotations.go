@@ -6,24 +6,24 @@ import (
 	"github.com/pgavlin/crtea/model"
 )
 
-// AnnotationType categorizes what a rendered line represents.
-type AnnotationType int
+// annotationType categorizes what a rendered line represents.
+type annotationType int
 
 const (
-	AnnFileHeader AnnotationType = iota
-	AnnHunkHeader
-	AnnDiffLine
-	AnnFileComment
-	AnnLineComment
-	AnnExpander
-	AnnExpandedContext
-	AnnBinaryOrEmpty
-	AnnSpacing
+	annFileHeader annotationType = iota
+	annHunkHeader
+	annDiffLine
+	annFileComment
+	annLineComment
+	annExpander
+	annExpandedContext
+	annBinaryOrEmpty
+	annSpacing
 )
 
-// AnnotatedLine describes what a single screen line maps to in the diff model.
-type AnnotatedLine struct {
-	Type        AnnotationType
+// annotatedLine describes what a single screen line maps to in the diff model.
+type annotatedLine struct {
+	Type        annotationType
 	FileIdx     int
 	HunkIdx     int
 	LineIdx     int
@@ -33,11 +33,11 @@ type AnnotatedLine struct {
 	CommentLine  int // which display line within a comment (0 = header, 1+ = content lines)
 	CommentLines int // total display lines for this comment
 	Side        model.LineSide
-	GapID       GapID // set for AnnExpander and AnnExpandedContext
+	gapID       gapID // set for annExpander and annExpandedContext
 }
 
-// GapID identifies a gap between hunks for context expansion.
-type GapID struct {
+// gapID identifies a gap between hunks for context expansion.
+type gapID struct {
 	FileIdx int
 	HunkIdx int // gap is before this hunk
 }
@@ -79,15 +79,15 @@ func commentDisplayLines(c *model.Comment, wrapWidth int) int {
 	return 2 + len(wrapComment(c.Content, wrapWidth)) // top + content + bottom
 }
 
-// BuildAnnotations constructs the list of annotated lines from diff files, session, and expanded gaps.
+// buildAnnotations constructs the list of annotated lines from diff files, session, and expanded gaps.
 // commentWrapWidth is the available width for comment text (0 means no wrapping).
-func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expandedGaps map[GapID][]model.DiffLine, commentWrapWidth int) []AnnotatedLine {
-	var annotations []AnnotatedLine
+func buildAnnotations(files []model.DiffFile, session *model.ReviewSession, expandedGaps map[gapID][]model.DiffLine, commentWrapWidth int) []annotatedLine {
+	var annotations []annotatedLine
 
 	for fi, file := range files {
 		// File header
-		annotations = append(annotations, AnnotatedLine{
-			Type:    AnnFileHeader,
+		annotations = append(annotations, annotatedLine{
+			Type:    annFileHeader,
 			FileIdx: fi,
 		})
 
@@ -97,8 +97,8 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 				for ci := range fr.FileComments {
 					total := commentDisplayLines(&fr.FileComments[ci], commentWrapWidth)
 					for cl := range total {
-						annotations = append(annotations, AnnotatedLine{
-							Type:         AnnFileComment,
+						annotations = append(annotations, annotatedLine{
+							Type:         annFileComment,
 							FileIdx:      fi,
 							CommentIdx:   ci,
 							CommentLine:  cl,
@@ -110,53 +110,53 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 		}
 
 		if file.IsBinary {
-			annotations = append(annotations, AnnotatedLine{
-				Type:    AnnBinaryOrEmpty,
+			annotations = append(annotations, annotatedLine{
+				Type:    annBinaryOrEmpty,
 				FileIdx: fi,
 			})
-			annotations = append(annotations, AnnotatedLine{Type: AnnSpacing})
+			annotations = append(annotations, annotatedLine{Type: annSpacing})
 			continue
 		}
 
 		for hi, hunk := range file.Hunks {
 			// Gap between hunks
 			if hi > 0 {
-				gid := GapID{FileIdx: fi, HunkIdx: hi}
+				gid := gapID{FileIdx: fi, HunkIdx: hi}
 				if expanded, ok := expandedGaps[gid]; ok {
 					// Show expanded context lines
 					for li, line := range expanded {
-						annotations = append(annotations, AnnotatedLine{
-							Type:      AnnExpandedContext,
+						annotations = append(annotations, annotatedLine{
+							Type:      annExpandedContext,
 							FileIdx:   fi,
 							HunkIdx:   hi,
 							LineIdx:   li,
 							OldLineNo: line.OldLineNo,
 							NewLineNo: line.NewLineNo,
-							GapID:     gid,
+							gapID:     gid,
 						})
 					}
 				} else {
 					// Show collapsed expander
-					annotations = append(annotations, AnnotatedLine{
-						Type:    AnnExpander,
+					annotations = append(annotations, annotatedLine{
+						Type:    annExpander,
 						FileIdx: fi,
 						HunkIdx: hi,
-						GapID:   gid,
+						gapID:   gid,
 					})
 				}
 			}
 
 			// Hunk header
-			annotations = append(annotations, AnnotatedLine{
-				Type:    AnnHunkHeader,
+			annotations = append(annotations, annotatedLine{
+				Type:    annHunkHeader,
 				FileIdx: fi,
 				HunkIdx: hi,
 			})
 
 			// Diff lines
 			for li, line := range hunk.Lines {
-				annotations = append(annotations, AnnotatedLine{
-					Type:      AnnDiffLine,
+				annotations = append(annotations, annotatedLine{
+					Type:      annDiffLine,
 					FileIdx:   fi,
 					HunkIdx:   hi,
 					LineIdx:   li,
@@ -180,8 +180,8 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 								}
 								total := commentDisplayLines(&comments[ci], commentWrapWidth)
 								for cl := range total {
-									annotations = append(annotations, AnnotatedLine{
-										Type:         AnnLineComment,
+									annotations = append(annotations, annotatedLine{
+										Type:         annLineComment,
 										FileIdx:      fi,
 										HunkIdx:      hi,
 										LineIdx:      li,
@@ -201,7 +201,7 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 		}
 
 		// Spacing between files
-		annotations = append(annotations, AnnotatedLine{Type: AnnSpacing})
+		annotations = append(annotations, annotatedLine{Type: annSpacing})
 	}
 
 	return annotations

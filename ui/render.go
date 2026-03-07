@@ -16,7 +16,7 @@ func (a *App) renderCommitList(width, height int) string {
 	th := a.theme
 	items := a.commitListItems()
 
-	isFocused := a.focusedPanel == PanelCommitList
+	isFocused := a.focusedPanel == panelCommitList
 
 	// Determine visible range (last line is separator)
 	visibleItems := height - 1
@@ -145,33 +145,33 @@ func (a *App) renderFooter() string {
 
 	var content string
 	switch a.inputMode {
-	case ModeCommand:
+	case modeCommand:
 		content = ":" + a.commandBuffer + "█"
-	case ModeSearch:
+	case modeSearch:
 		content = "/" + a.searchBuffer + "█"
-	case ModeComment:
+	case modeComment:
 		content = " Enter: save | Esc: cancel | Tab: cycle type | Shift-Enter: newline"
-	case ModeVisualSelect:
+	case modeVisualSelect:
 		modeStyle := lipgloss.NewStyle().
 			Background(th.ModeBg).
 			Foreground(th.ModeFg).
 			Bold(true).
 			Padding(0, 1)
 		content = modeStyle.Render("VISUAL") + " Select lines, then press c to comment"
-	case ModeHelp:
+	case modeHelp:
 		content = " Press ? or Esc to close help"
 	default:
 		if a.message != nil {
 			msgStyle := lipgloss.NewStyle().Bold(true)
-			switch a.message.Level {
-			case MessageInfo:
+			switch a.message.level {
+			case messageInfo:
 				msgStyle = msgStyle.Foreground(th.MessageInfoBg).Background(th.StatusBarBg)
-			case MessageWarning:
+			case messageWarning:
 				msgStyle = msgStyle.Foreground(th.MessageWarnBg).Background(th.StatusBarBg)
-			case MessageError:
+			case messageError:
 				msgStyle = msgStyle.Foreground(th.MessageErrorBg).Background(th.StatusBarBg)
 			}
-			content = " " + msgStyle.Render(a.message.Text)
+			content = " " + msgStyle.Render(a.message.text)
 		} else {
 			comments := a.session.TotalComments()
 			if comments > 0 {
@@ -195,7 +195,7 @@ func (a *App) renderFileList(width, height int) string {
 	th := a.theme
 
 	borderColor := th.BorderUnfocused
-	if a.focusedPanel == PanelFileList {
+	if a.focusedPanel == panelFileList {
 		borderColor = th.BorderFocused
 	}
 
@@ -208,7 +208,7 @@ func (a *App) renderFileList(width, height int) string {
 
 	for i, row := range a.fileTreeRows {
 		node := row.Node
-		isSelected := i == a.fileListCursor && a.focusedPanel == PanelFileList
+		isSelected := i == a.fileListCursor && a.focusedPanel == panelFileList
 
 		// When selected, all styles get highlight background
 		bg := func(s lipgloss.Style) lipgloss.Style {
@@ -323,11 +323,11 @@ func (a *App) renderDiffView(width, height int) string {
 	editorInjected := false
 	for i := a.scrollOffset; i < end && len(lines) < vpHeight; i++ {
 		ann := a.annotations[i]
-		isCursor := (i == a.cursorLine && a.focusedPanel == PanelDiff)
+		isCursor := (i == a.cursorLine && a.focusedPanel == panelDiff)
 		isVisualSelected := a.isVisualSelected(i)
 
 		// When editing an existing comment, replace its annotation lines with the editor
-		if a.inputMode == ModeComment && a.editingID != "" && a.isEditingAnnotation(ann) {
+		if a.inputMode == modeComment && a.editingID != "" && a.isEditingAnnotation(ann) {
 			if !editorInjected {
 				editorInjected = true
 				for _, el := range a.renderCommentEditor(width) {
@@ -344,7 +344,7 @@ func (a *App) renderDiffView(width, height int) string {
 		lines = append(lines, line)
 
 		// Inject inline comment editor after the cursor line (new comments)
-		if i == a.cursorLine && a.inputMode == ModeComment && a.editingID == "" {
+		if i == a.cursorLine && a.inputMode == modeComment && a.editingID == "" {
 			for _, el := range a.renderCommentEditor(width) {
 				if len(lines) >= vpHeight {
 					break
@@ -363,14 +363,14 @@ func (a *App) renderDiffView(width, height int) string {
 }
 
 func (a *App) isVisualSelected(idx int) bool {
-	if a.inputMode != ModeVisualSelect {
+	if a.inputMode != modeVisualSelect {
 		return false
 	}
 	if idx < 0 || idx >= len(a.annotations) {
 		return false
 	}
 	ann := a.annotations[idx]
-	if ann.Type != AnnDiffLine {
+	if ann.Type != annDiffLine {
 		return false
 	}
 
@@ -392,14 +392,14 @@ func (a *App) isVisualSelected(idx int) bool {
 	return lineNo >= lo && lineNo <= hi
 }
 
-func (a *App) renderAnnotatedLine(ann AnnotatedLine, width int, isCursor, isVisualSelected bool) string {
+func (a *App) renderAnnotatedLine(ann annotatedLine, width int, isCursor, isVisualSelected bool) string {
 	th := a.theme
 
 	switch ann.Type {
-	case AnnFileHeader:
+	case annFileHeader:
 		return a.renderFileHeader(ann, width, isCursor)
 
-	case AnnHunkHeader:
+	case annHunkHeader:
 		if ann.FileIdx >= 0 && ann.FileIdx < len(a.diffFiles) {
 			file := a.diffFiles[ann.FileIdx]
 			if ann.HunkIdx >= 0 && ann.HunkIdx < len(file.Hunks) {
@@ -413,30 +413,30 @@ func (a *App) renderAnnotatedLine(ann AnnotatedLine, width int, isCursor, isVisu
 		}
 		return strings.Repeat(" ", width)
 
-	case AnnDiffLine:
+	case annDiffLine:
 		return a.renderDiffLine(ann, width, isCursor, isVisualSelected)
 
-	case AnnFileComment:
+	case annFileComment:
 		return a.renderCommentLine(ann, width, isCursor, true)
 
-	case AnnLineComment:
+	case annLineComment:
 		return a.renderCommentLine(ann, width, isCursor, false)
 
-	case AnnExpander:
+	case annExpander:
 		style := lipgloss.NewStyle().Foreground(th.FgDim)
 		if isCursor {
 			style = style.Background(th.BgHighlight)
 		}
 		return style.Render(truncateOrPad(" ⋯ expand context (Enter to expand)", width))
 
-	case AnnExpandedContext:
+	case annExpandedContext:
 		return a.renderExpandedContextLine(ann, width, isCursor)
 
-	case AnnBinaryOrEmpty:
+	case annBinaryOrEmpty:
 		style := lipgloss.NewStyle().Foreground(th.FgDim).Italic(true)
 		return style.Render(truncateOrPad(" Binary file", width))
 
-	case AnnSpacing:
+	case annSpacing:
 		return strings.Repeat(" ", width)
 
 	default:
@@ -444,7 +444,7 @@ func (a *App) renderAnnotatedLine(ann AnnotatedLine, width int, isCursor, isVisu
 	}
 }
 
-func (a *App) renderFileHeader(ann AnnotatedLine, width int, isCursor bool) string {
+func (a *App) renderFileHeader(ann annotatedLine, width int, isCursor bool) string {
 	th := a.theme
 	if ann.FileIdx < 0 || ann.FileIdx >= len(a.diffFiles) {
 		return strings.Repeat(" ", width)
@@ -489,7 +489,7 @@ func (a *App) renderFileHeader(ann AnnotatedLine, width int, isCursor bool) stri
 	return headerStyle.Render(truncateOrPad(content, width))
 }
 
-func (a *App) renderDiffLine(ann AnnotatedLine, width int, isCursor, isVisualSelected bool) string {
+func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSelected bool) string {
 	th := a.theme
 
 	if ann.FileIdx < 0 || ann.FileIdx >= len(a.diffFiles) {
@@ -608,10 +608,10 @@ func (a *App) renderDiffLine(ann AnnotatedLine, width int, isCursor, isVisualSel
 	return gutter + markerStyle.Render(marker) + renderedContent
 }
 
-func (a *App) renderExpandedContextLine(ann AnnotatedLine, width int, isCursor bool) string {
+func (a *App) renderExpandedContextLine(ann annotatedLine, width int, isCursor bool) string {
 	th := a.theme
 
-	expanded, ok := a.expandedGaps[ann.GapID]
+	expanded, ok := a.expandedGaps[ann.gapID]
 	if !ok || ann.LineIdx < 0 || ann.LineIdx >= len(expanded) {
 		return strings.Repeat(" ", width)
 	}
@@ -640,7 +640,7 @@ func (a *App) renderExpandedContextLine(ann AnnotatedLine, width int, isCursor b
 	return gutter + contentStyle.Render(" "+truncateOrPad(content, contentWidth))
 }
 
-func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLevel bool) string {
+func (a *App) renderCommentLine(ann annotatedLine, width int, isCursor, isFileLevel bool) string {
 	th := a.theme
 
 	path := ""
@@ -732,12 +732,12 @@ func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLe
 }
 
 // isEditingAnnotation returns true if the annotation belongs to the comment currently being edited.
-func (a *App) isEditingAnnotation(ann AnnotatedLine) bool {
+func (a *App) isEditingAnnotation(ann annotatedLine) bool {
 	if a.editingID == "" {
 		return false
 	}
 
-	isCommentAnn := ann.Type == AnnFileComment || ann.Type == AnnLineComment
+	isCommentAnn := ann.Type == annFileComment || ann.Type == annLineComment
 	if !isCommentAnn {
 		return false
 	}
@@ -751,7 +751,7 @@ func (a *App) isEditingAnnotation(ann AnnotatedLine) bool {
 		return false
 	}
 
-	if ann.Type == AnnFileComment {
+	if ann.Type == annFileComment {
 		if ann.CommentIdx < len(fr.FileComments) {
 			return fr.FileComments[ann.CommentIdx].ID == a.editingID
 		}
