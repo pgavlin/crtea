@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/pgavlin/crtea/model"
+import (
+	"strings"
+
+	"github.com/pgavlin/crtea/model"
+)
 
 // AnnotationType categorizes what a rendered line represents.
 type AnnotationType int
@@ -19,15 +23,16 @@ const (
 
 // AnnotatedLine describes what a single screen line maps to in the diff model.
 type AnnotatedLine struct {
-	Type       AnnotationType
-	FileIdx    int
-	HunkIdx    int
-	LineIdx    int
-	OldLineNo  int
-	NewLineNo  int
-	CommentIdx int
-	Side       model.LineSide
-	GapID      GapID // set for AnnExpander and AnnExpandedContext
+	Type        AnnotationType
+	FileIdx     int
+	HunkIdx     int
+	LineIdx     int
+	OldLineNo   int
+	NewLineNo   int
+	CommentIdx  int
+	CommentLine int // which display line within a comment (0 = header, 1+ = content lines)
+	Side        model.LineSide
+	GapID       GapID // set for AnnExpander and AnnExpandedContext
 }
 
 // GapID identifies a gap between hunks for context expansion.
@@ -36,8 +41,46 @@ type GapID struct {
 	HunkIdx int // gap is before this hunk
 }
 
+// wrapComment returns the wrapped display lines for a comment's content.
+// The result does not include the header line.
+func wrapComment(content string, wrapWidth int) []string {
+	if wrapWidth <= 0 {
+		return strings.Split(content, "\n")
+	}
+	var result []string
+	for _, paragraph := range strings.Split(content, "\n") {
+		if len(paragraph) <= wrapWidth {
+			result = append(result, paragraph)
+			continue
+		}
+		for len(paragraph) > wrapWidth {
+			// Find last space before wrapWidth
+			breakAt := wrapWidth
+			if idx := strings.LastIndex(paragraph[:wrapWidth], " "); idx > 0 {
+				breakAt = idx
+			}
+			result = append(result, paragraph[:breakAt])
+			paragraph = strings.TrimLeft(paragraph[breakAt:], " ")
+		}
+		if len(paragraph) > 0 {
+			result = append(result, paragraph)
+		}
+	}
+	if len(result) == 0 {
+		result = []string{""}
+	}
+	return result
+}
+
+// commentDisplayLines returns the number of display lines for a comment:
+// 1 header line + N wrapped content lines.
+func commentDisplayLines(c *model.Comment, wrapWidth int) int {
+	return 1 + len(wrapComment(c.Content, wrapWidth))
+}
+
 // BuildAnnotations constructs the list of annotated lines from diff files, session, and expanded gaps.
-func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expandedGaps map[GapID][]model.DiffLine) []AnnotatedLine {
+// commentWrapWidth is the available width for comment text (0 means no wrapping).
+func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expandedGaps map[GapID][]model.DiffLine, commentWrapWidth int) []AnnotatedLine {
 	var annotations []AnnotatedLine
 
 	for fi, file := range files {
@@ -51,11 +94,14 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 		if session != nil {
 			if fr := session.GetFileReview(file.DisplayPath()); fr != nil {
 				for ci := range fr.FileComments {
-					annotations = append(annotations, AnnotatedLine{
-						Type:       AnnFileComment,
-						FileIdx:    fi,
-						CommentIdx: ci,
-					})
+					for cl := range commentDisplayLines(&fr.FileComments[ci], commentWrapWidth) {
+						annotations = append(annotations, AnnotatedLine{
+							Type:        AnnFileComment,
+							FileIdx:     fi,
+							CommentIdx:  ci,
+							CommentLine: cl,
+						})
+					}
 				}
 			}
 		}
@@ -126,16 +172,22 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 						}
 						if comments, ok := fr.LineComments[lineNo]; ok && lineNo > 0 {
 							for ci := range comments {
-								annotations = append(annotations, AnnotatedLine{
-									Type:       AnnLineComment,
-									FileIdx:    fi,
-									HunkIdx:    hi,
-									LineIdx:    li,
-									OldLineNo:  line.OldLineNo,
-									NewLineNo:  line.NewLineNo,
-									CommentIdx: ci,
-									Side:       side,
-								})
+								if comments[ci].Side != side {
+									continue
+								}
+								for cl := range commentDisplayLines(&comments[ci], commentWrapWidth) {
+									annotations = append(annotations, AnnotatedLine{
+										Type:        AnnLineComment,
+										FileIdx:     fi,
+										HunkIdx:     hi,
+										LineIdx:     li,
+										OldLineNo:   line.OldLineNo,
+										NewLineNo:   line.NewLineNo,
+										CommentIdx:  ci,
+										CommentLine: cl,
+										Side:        side,
+									})
+								}
 							}
 						}
 					}

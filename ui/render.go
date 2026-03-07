@@ -478,32 +478,40 @@ func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLe
 	}
 
 	typeColor := a.commentTypeColor(comment.Type)
-	typeBadge := lipgloss.NewStyle().
-		Background(typeColor).
-		Foreground(th.ModeFg).
-		Bold(true).
-		Padding(0, 1).
-		Render(comment.Type.String())
 
 	commentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
 	if isCursor {
 		commentStyle = commentStyle.Background(th.BgHighlight)
 	}
 
-	// Show first line of comment
-	content := comment.Content
-	if idx := strings.IndexByte(content, '\n'); idx >= 0 {
-		content = content[:idx] + "…"
-	}
-
 	prefix := "          " // same width as line number gutter
-	if isFileLevel {
-		prefix = "   📎     "
-	} else {
-		prefix = "   💬     "
+
+	if ann.CommentLine == 0 {
+		// Header line: icon + type badge
+		typeBadge := lipgloss.NewStyle().
+			Background(typeColor).
+			Foreground(th.ModeFg).
+			Bold(true).
+			Padding(0, 1).
+			Render(comment.Type.String())
+
+		line := prefix + typeBadge
+		return commentStyle.Render(truncateOrPad(line, width))
 	}
 
-	line := prefix + typeBadge + " " + content
+	// Content lines (wrapped)
+	wrapWidth := width - 12 // match commentWrapWidth calculation
+	if wrapWidth < 20 {
+		wrapWidth = 0
+	}
+	wrapped := wrapComment(comment.Content, wrapWidth)
+	lineIdx := ann.CommentLine - 1
+	content := ""
+	if lineIdx >= 0 && lineIdx < len(wrapped) {
+		content = wrapped[lineIdx]
+	}
+
+	line := prefix + "  " + content
 	return commentStyle.Render(truncateOrPad(line, width))
 }
 

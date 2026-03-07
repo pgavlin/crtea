@@ -122,7 +122,20 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 }
 
 func (a *App) rebuildAnnotations() {
-	a.annotations = BuildAnnotations(a.diffFiles, a.session, a.expandedGaps)
+	a.annotations = BuildAnnotations(a.diffFiles, a.session, a.expandedGaps, a.commentWrapWidth())
+}
+
+// commentWrapWidth returns the available character width for comment text content.
+func (a *App) commentWrapWidth() int {
+	w := a.width
+	if a.showFileList {
+		w -= a.fileListWidth() + 1
+	}
+	w -= 12 // gutter (10) + indent (2)
+	if w < 20 {
+		return 0 // disable wrapping if too narrow
+	}
+	return w
 }
 
 // Init implements tea.Model.
@@ -136,6 +149,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
+		a.rebuildAnnotations()
 		return &a, nil
 
 	case tea.KeyPressMsg:
