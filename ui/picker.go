@@ -218,8 +218,9 @@ func (a *App) renderPicker() string {
 			if maxSummary < 20 {
 				maxSummary = 20
 			}
-			if len(summary) > maxSummary {
-				summary = summary[:maxSummary-1] + "…"
+			runes := []rune(summary)
+			if len(runes) > maxSummary {
+				summary = string(runes[:maxSummary-1]) + "…"
 			}
 
 			line := cursorStyle.Render(cursor) +

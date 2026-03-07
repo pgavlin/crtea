@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/pgavlin/crtea/model"
 )
 
@@ -933,26 +934,13 @@ func (a *App) renderHelp(height int) string {
 
 // Utility functions
 
-func truncate(s string, maxLen int) string {
-	if maxLen <= 0 {
-		return ""
-	}
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-1] + "…"
-}
-
 func truncateOrPad(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
 	w := lipgloss.Width(s)
 	if w > width {
-		return truncate(s, width)
+		return ansi.Truncate(s, width, "…")
 	}
 	if w < width {
 		return s + strings.Repeat(" ", width-w)
