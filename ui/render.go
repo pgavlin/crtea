@@ -405,7 +405,7 @@ func (a *App) renderDiffLine(ann AnnotatedLine, width int, isCursor, isVisualSel
 		content = ""
 	}
 
-	gutterWidth := 10 // "1234 5678 "
+	gutterWidth := 10                       // "1234 5678 "
 	contentWidth := width - gutterWidth - 1 // -1 for marker
 	renderedContent := contentStyle.Render(truncateOrPad(content, contentWidth))
 
@@ -479,15 +479,24 @@ func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLe
 
 	typeColor := a.commentTypeColor(comment.Type)
 
-	commentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+	gutter := "          " // same width as line number gutter (10 chars)
+	boxWidth := width - len(gutter)
+	if boxWidth < 10 {
+		boxWidth = 10
+	}
+	innerWidth := boxWidth - 4 // "│ " + content + " │"
+
+	borderStyle := lipgloss.NewStyle().Foreground(typeColor)
+	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
 	if isCursor {
-		commentStyle = commentStyle.Background(th.BgHighlight)
+		contentStyle = contentStyle.Background(th.BgHighlight)
 	}
 
-	prefix := "          " // same width as line number gutter
+	isFirst := ann.CommentLine == 0
+	isLast := ann.CommentLine == ann.CommentLines-1
 
-	if ann.CommentLine == 0 {
-		// Header line: icon + type badge
+	if isFirst {
+		// Top border + type badge
 		typeBadge := lipgloss.NewStyle().
 			Background(typeColor).
 			Foreground(th.ModeFg).
@@ -495,26 +504,37 @@ func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLe
 			Padding(0, 1).
 			Render(comment.Type.String())
 
-		line := prefix + typeBadge
-		return commentStyle.Render(truncateOrPad(line, width))
+		badgeWidth := lipgloss.Width(typeBadge)
+		restWidth := boxWidth - 2 - badgeWidth // "╭" + badge + "───╮"
+		if restWidth < 1 {
+			restWidth = 1
+		}
+		line := gutter + borderStyle.Render("╭") + typeBadge + borderStyle.Render(strings.Repeat("─", restWidth)+"╮")
+		return truncateOrPad(line, width)
+	}
+
+	if isLast && ann.CommentLine > 0 {
+		// Bottom border
+		line := gutter + borderStyle.Render("╰"+strings.Repeat("─", boxWidth-2)+"╯")
+		return truncateOrPad(line, width)
 	}
 
 	// Content lines (wrapped)
-	wrapWidth := width - 12 // match commentWrapWidth calculation
-	if wrapWidth < 20 {
+	wrapWidth := innerWidth
+	if wrapWidth < 10 {
 		wrapWidth = 0
 	}
 	wrapped := wrapComment(comment.Content, wrapWidth)
 	lineIdx := ann.CommentLine - 1
-	content := ""
+	text := ""
 	if lineIdx >= 0 && lineIdx < len(wrapped) {
-		content = wrapped[lineIdx]
+		text = wrapped[lineIdx]
 	}
 
-	line := prefix + "  " + content
-	return commentStyle.Render(truncateOrPad(line, width))
+	inner := truncateOrPad(text, innerWidth)
+	line := gutter + borderStyle.Render("│") + " " + contentStyle.Render(inner) + " " + borderStyle.Render("│")
+	return truncateOrPad(line, width)
 }
-
 
 func (a *App) commentTypeColor(ct model.CommentType) color.Color {
 	th := a.theme

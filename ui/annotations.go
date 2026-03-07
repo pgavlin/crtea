@@ -30,7 +30,8 @@ type AnnotatedLine struct {
 	OldLineNo   int
 	NewLineNo   int
 	CommentIdx  int
-	CommentLine int // which display line within a comment (0 = header, 1+ = content lines)
+	CommentLine  int // which display line within a comment (0 = header, 1+ = content lines)
+	CommentLines int // total display lines for this comment
 	Side        model.LineSide
 	GapID       GapID // set for AnnExpander and AnnExpandedContext
 }
@@ -73,9 +74,9 @@ func wrapComment(content string, wrapWidth int) []string {
 }
 
 // commentDisplayLines returns the number of display lines for a comment:
-// 1 header line + N wrapped content lines.
+// top border + N wrapped content lines + bottom border.
 func commentDisplayLines(c *model.Comment, wrapWidth int) int {
-	return 1 + len(wrapComment(c.Content, wrapWidth))
+	return 2 + len(wrapComment(c.Content, wrapWidth)) // top + content + bottom
 }
 
 // BuildAnnotations constructs the list of annotated lines from diff files, session, and expanded gaps.
@@ -94,12 +95,14 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 		if session != nil {
 			if fr := session.GetFileReview(file.DisplayPath()); fr != nil {
 				for ci := range fr.FileComments {
-					for cl := range commentDisplayLines(&fr.FileComments[ci], commentWrapWidth) {
+					total := commentDisplayLines(&fr.FileComments[ci], commentWrapWidth)
+					for cl := range total {
 						annotations = append(annotations, AnnotatedLine{
-							Type:        AnnFileComment,
-							FileIdx:     fi,
-							CommentIdx:  ci,
-							CommentLine: cl,
+							Type:         AnnFileComment,
+							FileIdx:      fi,
+							CommentIdx:   ci,
+							CommentLine:  cl,
+							CommentLines: total,
 						})
 					}
 				}
@@ -175,17 +178,19 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 								if comments[ci].Side != side {
 									continue
 								}
-								for cl := range commentDisplayLines(&comments[ci], commentWrapWidth) {
+								total := commentDisplayLines(&comments[ci], commentWrapWidth)
+								for cl := range total {
 									annotations = append(annotations, AnnotatedLine{
-										Type:        AnnLineComment,
-										FileIdx:     fi,
-										HunkIdx:     hi,
-										LineIdx:     li,
-										OldLineNo:   line.OldLineNo,
-										NewLineNo:   line.NewLineNo,
-										CommentIdx:  ci,
-										CommentLine: cl,
-										Side:        side,
+										Type:         AnnLineComment,
+										FileIdx:      fi,
+										HunkIdx:      hi,
+										LineIdx:      li,
+										OldLineNo:    line.OldLineNo,
+										NewLineNo:    line.NewLineNo,
+										CommentIdx:   ci,
+										CommentLine:  cl,
+										CommentLines: total,
+										Side:         side,
 									})
 								}
 							}

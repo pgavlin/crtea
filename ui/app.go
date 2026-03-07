@@ -131,8 +131,8 @@ func (a *App) commentWrapWidth() int {
 	if a.showFileList {
 		w -= a.fileListWidth() + 1
 	}
-	w -= 12 // gutter (10) + indent (2)
-	if w < 20 {
+	w -= 14 // gutter (10) + box borders "│ " + " │" (4)
+	if w < 10 {
 		return 0 // disable wrapping if too narrow
 	}
 	return w
