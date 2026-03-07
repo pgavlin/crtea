@@ -1,3 +1,4 @@
+// Package persistence provides storage for review sessions.
 package persistence
 
 import (

@@ -1,3 +1,4 @@
+// Package vcs defines the version control backend interface and implementations.
 package vcs
 
 import (
@@ -26,10 +27,16 @@ type CommitInfo struct {
 
 // Backend defines the interface for version control operations.
 type Backend interface {
+	// Info returns metadata about the repository.
 	Info() VcsInfo
+	// GetWorkingTreeDiff returns the diff of uncommitted changes.
 	GetWorkingTreeDiff() ([]model.DiffFile, error)
+	// GetCommitRangeDiff returns the combined diff for a set of commit IDs.
 	GetCommitRangeDiff(ids []string) ([]model.DiffFile, error)
+	// GetRevisionDiff returns the diff for a revision specification (e.g. "main~5..HEAD").
 	GetRevisionDiff(revSpec string) ([]model.DiffFile, error)
+	// FetchContextLines retrieves source lines surrounding a diff region for context expansion.
 	FetchContextLines(filePath string, status model.FileStatus, startLine, endLine int) ([]model.DiffLine, error)
+	// GetRecentCommits returns recent commits starting from offset, up to limit.
 	GetRecentCommits(offset, limit int) ([]CommitInfo, error)
 }

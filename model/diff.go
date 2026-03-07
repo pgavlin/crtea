@@ -1,3 +1,4 @@
+// Package model defines the core data types for diffs, comments, and review sessions.
 package model
 
 // FileStatus represents the status of a file in a diff.
@@ -11,6 +12,7 @@ const (
 	FileCopied
 )
 
+// String returns a single-character representation of the file status.
 func (s FileStatus) String() string {
 	switch s {
 	case FileAdded:

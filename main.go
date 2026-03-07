@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/pgavlin/crtea/model"
+	"github.com/pgavlin/crtea/output"
 	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
@@ -19,7 +20,8 @@ import (
 // It translates tea.WindowSizeMsg into SetSize calls, and converts ui.DoneMsg /
 // ui.ClipboardMsg back into program-level actions (tea.Quit, tea.SetClipboard).
 type appWrapper struct {
-	app ui.App
+	app     ui.App
+	session *model.ReviewSession
 }
 
 func (w *appWrapper) Init() tea.Cmd {
@@ -32,6 +34,7 @@ func (w *appWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		w.app.SetSize(msg.Width, msg.Height)
 		return w, nil
 	case ui.DoneMsg:
+		w.session = msg.Session
 		return w, tea.Quit
 	case ui.ClipboardMsg:
 		return w, tea.SetClipboard(msg.Content)
@@ -118,7 +121,7 @@ func main() {
 	}
 
 	// If --stdout, print comments as markdown
-	if *stdoutFlag {
-		w.app.ExportMarkdown(os.Stdout)
+	if *stdoutFlag && w.session != nil && w.session.TotalComments() > 0 {
+		fmt.Fprint(os.Stdout, output.GenerateMarkdown(w.session))
 	}
 }

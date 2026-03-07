@@ -59,7 +59,7 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.setMessage("Unsaved changes. Press q again to quit, or :w to save.", messageWarning)
 			return &a, nil
 		}
-		return &a, func() tea.Msg { return DoneMsg{} }
+		return &a, func() tea.Msg { return DoneMsg{Session: a.session} }
 
 	case key.Code == tea.KeyEscape:
 		a.pendingCount = ""
@@ -931,9 +931,9 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 			a.setMessage("Unsaved changes. Use :q! to force quit, or :w to save.", messageWarning)
 			return nil
 		}
-		return func() tea.Msg { return DoneMsg{} }
+		return func() tea.Msg { return DoneMsg{Session: a.session} }
 	case "q!", "quit!":
-		return func() tea.Msg { return DoneMsg{} }
+		return func() tea.Msg { return DoneMsg{Session: a.session} }
 	case "w", "write":
 		if _, err := a.store.Save(a.session); err != nil {
 			a.setMessage("Save failed: "+err.Error(), messageError)
@@ -945,7 +945,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	case "x", "wq":
 		a.store.Save(a.session)
 		a.dirty = false
-		return func() tea.Msg { return DoneMsg{} }
+		return func() tea.Msg { return DoneMsg{Session: a.session} }
 	case "e", "reload":
 		files, err := a.vcs.GetWorkingTreeDiff()
 		if err != nil {

@@ -1,3 +1,4 @@
+// Package theme provides color themes for the code review UI.
 package theme
 
 import (

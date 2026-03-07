@@ -1,3 +1,4 @@
+// Package syntax provides syntax highlighting for diff content.
 package syntax
 
 import (

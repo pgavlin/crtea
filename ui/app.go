@@ -1,15 +1,13 @@
+// Package ui provides an embeddable Bubble Tea component for interactive code review.
 package ui
 
 import (
-	"fmt"
-	"io"
 	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/pgavlin/crtea/model"
-	"github.com/pgavlin/crtea/output"
 	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
@@ -50,7 +48,10 @@ type statusMessage struct {
 }
 
 // DoneMsg is emitted when the component wants to close.
-type DoneMsg struct{}
+// Session contains the final review state (nil if no review was started).
+type DoneMsg struct {
+	Session *model.ReviewSession
+}
 
 // ClipboardMsg is emitted when the component wants to copy text to the clipboard.
 type ClipboardMsg struct {
@@ -317,13 +318,6 @@ func (a *App) setMessage(text string, level messageLevel) {
 // clearMessage clears the status message.
 func (a *App) clearMessage() {
 	a.message = nil
-}
-
-// ExportMarkdown writes the session's comments as markdown to the given writer.
-func (a *App) ExportMarkdown(w io.Writer) {
-	if a.session != nil && a.session.TotalComments() > 0 {
-		fmt.Fprint(w, output.GenerateMarkdown(a.session))
-	}
 }
 
 // commitListItems returns the ordered list of entries for the commit list panel.

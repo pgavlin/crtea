@@ -17,6 +17,7 @@ const (
 	CommentQuestion
 )
 
+// String returns the display name of the comment type.
 func (t CommentType) String() string {
 	switch t {
 	case CommentNote:
@@ -34,6 +35,7 @@ func (t CommentType) String() string {
 	}
 }
 
+// Next returns the next comment type, cycling through all types.
 func (t CommentType) Next() CommentType {
 	return (t + 1) % 5
 }

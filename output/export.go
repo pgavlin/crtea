@@ -1,3 +1,4 @@
+// Package output provides export functionality for review sessions.
 package output
 
 import (
