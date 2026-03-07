@@ -55,8 +55,15 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Initialize persistence
+	store, err := persistence.NewFileStore()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing session store: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Load or create session
-	session, _ := persistence.LoadLatest(info.RootPath, info.BranchName, diffSource)
+	session, _ := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
 	if session == nil {
 		session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 	}
@@ -77,7 +84,7 @@ func main() {
 	highlighter := syntax.NewHighlighter(chromaStyle)
 	highlighter.HighlightFiles(files)
 
-	app := ui.NewApp(backend, files, session, th, highlighter)
+	app := ui.NewApp(backend, files, session, th, highlighter, store)
 	p := tea.NewProgram(&app)
 
 	if _, err := p.Run(); err != nil {

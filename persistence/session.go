@@ -13,27 +13,33 @@ import (
 	"github.com/pgavlin/crtea/model"
 )
 
-// SessionDir returns the directory where sessions are stored.
-func SessionDir() (string, error) {
+// Store defines the interface for session persistence.
+type Store interface {
+	Save(session *model.ReviewSession) (string, error)
+	LoadLatest(repoPath, branchName string, diffSource model.DiffSource) (*model.ReviewSession, error)
+}
+
+// FileStore implements Store by persisting sessions as JSON files on disk.
+type FileStore struct {
+	dir string
+}
+
+// NewFileStore creates a FileStore using the default session directory.
+func NewFileStore() (*FileStore, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	dir := filepath.Join(home, ".local", "share", "crtea", "reviews")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
+		return nil, err
 	}
-	return dir, nil
+	return &FileStore{dir: dir}, nil
 }
 
 // Save writes the session to disk.
-func Save(session *model.ReviewSession) (string, error) {
-	dir, err := SessionDir()
-	if err != nil {
-		return "", err
-	}
-
+func (fs *FileStore) Save(session *model.ReviewSession) (string, error) {
 	session.UpdatedAt = time.Now().UTC()
 
 	data, err := json.MarshalIndent(session, "", "  ")
@@ -43,7 +49,7 @@ func Save(session *model.ReviewSession) (string, error) {
 
 	fingerprint := repoFingerprint(session.RepoPath)
 	filename := fmt.Sprintf("%s_%s.json", fingerprint, session.ID)
-	path := filepath.Join(dir, filename)
+	path := filepath.Join(fs.dir, filename)
 
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return "", err
@@ -53,15 +59,10 @@ func Save(session *model.ReviewSession) (string, error) {
 }
 
 // LoadLatest finds and loads the most recent session matching the given context.
-func LoadLatest(repoPath, branchName string, diffSource model.DiffSource) (*model.ReviewSession, error) {
-	dir, err := SessionDir()
-	if err != nil {
-		return nil, err
-	}
-
+func (fs *FileStore) LoadLatest(repoPath, branchName string, diffSource model.DiffSource) (*model.ReviewSession, error) {
 	fingerprint := repoFingerprint(repoPath)
 
-	entries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(fs.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -69,7 +70,6 @@ func LoadLatest(repoPath, branchName string, diffSource model.DiffSource) (*mode
 		return nil, err
 	}
 
-	// Filter matching files and sort by modification time
 	type candidate struct {
 		path    string
 		modTime time.Time
@@ -87,7 +87,7 @@ func LoadLatest(repoPath, branchName string, diffSource model.DiffSource) (*mode
 			continue
 		}
 		candidates = append(candidates, candidate{
-			path:    filepath.Join(dir, entry.Name()),
+			path:    filepath.Join(fs.dir, entry.Name()),
 			modTime: info.ModTime(),
 		})
 	}
@@ -96,7 +96,6 @@ func LoadLatest(repoPath, branchName string, diffSource model.DiffSource) (*mode
 		return candidates[i].modTime.After(candidates[j].modTime)
 	})
 
-	// Try loading the most recent matching session
 	for _, c := range candidates {
 		data, err := os.ReadFile(c.path)
 		if err != nil {

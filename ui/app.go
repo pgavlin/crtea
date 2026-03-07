@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/pgavlin/crtea/model"
+	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/vcs"
@@ -105,12 +106,15 @@ type App struct {
 	pendingCount  string // digit accumulator for {N}G
 	pendingPrefix rune   // for pending key sequences like d, z, ;
 
+	// Persistence
+	store persistence.Store
+
 	// Theme
 	theme theme.Theme
 }
 
 // NewApp creates a new App model.
-func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter) App {
+func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
 	app := App{
 		vcs:           backend,
 		vcsInfo:       backend.Info(),
@@ -122,6 +126,7 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 		showFileList:  true,
 		expandedGaps:  make(map[GapID][]model.DiffLine),
 		collapsedDirs: make(map[string]bool),
+		store:         store,
 		theme:         th,
 	}
 	app.rebuildFileTree()

@@ -9,7 +9,6 @@ import (
 
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/output"
-	"github.com/pgavlin/crtea/persistence"
 )
 
 func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -898,7 +897,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	case "q!", "quit!":
 		return tea.Quit
 	case "w", "write":
-		if _, err := persistence.Save(a.session); err != nil {
+		if _, err := a.store.Save(a.session); err != nil {
 			a.setMessage("Save failed: "+err.Error(), MessageError)
 		} else {
 			a.setMessage("Session saved", MessageInfo)
@@ -906,7 +905,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		}
 		return nil
 	case "x", "wq":
-		persistence.Save(a.session)
+		a.store.Save(a.session)
 		a.dirty = false
 		return tea.Quit
 	case "e", "reload":
