@@ -266,12 +266,12 @@ func (a App) View() tea.View {
 }
 
 func (a *App) fileListWidth() int {
-	w := a.width / 4
+	w := a.width / 5
 	if w < 20 {
 		w = 20
 	}
-	if w > 50 {
-		w = 50
+	if w > 40 {
+		w = 40
 	}
 	return w
 }
