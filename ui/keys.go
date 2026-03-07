@@ -16,8 +16,10 @@ import (
 )
 
 func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	// Clear message on any keypress
-	a.clearMessage()
+	// Clear non-error messages on any keypress; errors persist until Escape
+	if a.message != nil && a.message.level != messageError {
+		a.clearMessage()
+	}
 
 	if a.phase == phasePicker {
 		return a.handlePickerKey(msg)
@@ -61,6 +63,12 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return &a, nil
 	}
 
+	// 0 (when not accumulating digits) resets horizontal scroll
+	if key.Text == "0" && a.pendingCount == "" {
+		a.scrollX = 0
+		return &a, nil
+	}
+
 	switch {
 	// Quit
 	case key.Code == 'q' && key.Mod == 0:
@@ -74,6 +82,8 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Code == tea.KeyEscape:
 		a.pendingCount = ""
 		a.pendingPrefix = 0
+		a.searchHighlight = ""
+		a.clearMessage()
 		return &a, nil
 
 	// Navigation
@@ -99,6 +109,8 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a.focusedPanel == panelDiff {
 			a.scrollX++
 		}
+	case key.Code == tea.KeyHome:
+		a.scrollX = 0
 
 	// Jump
 	case key.Text == "G":
@@ -209,7 +221,9 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.descScroll = 0
 		}
 	case key.Text == "P":
-		if a.session != nil {
+		if a.provider == nil {
+			a.setMessage("Conversation requires a remote provider", messageWarning)
+		} else if a.session != nil {
 			a.showConversation = !a.showConversation
 			a.convScroll = 0
 			if a.showConversation {
@@ -242,6 +256,7 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Help
 	case key.Text == "?":
 		a.inputMode = modeHelp
+		a.helpScroll = 0
 	}
 
 	return &a, nil
@@ -272,6 +287,10 @@ func (a App) handlePendingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.focusedPanel = panelFileList
 		case 'l':
 			a.focusedPanel = panelDiff
+		case 'n':
+			a.nextUnreviewedFile()
+		case 'p':
+			a.prevUnreviewedFile()
 		}
 	}
 
@@ -283,6 +302,25 @@ func (a App) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Code == tea.KeyEscape, key.Code == 'q', key.Text == "?":
 		a.inputMode = modeNormal
+		a.helpScroll = 0
+	case key.Code == 'j' && key.Mod == 0, key.Code == tea.KeyDown:
+		a.helpScroll++
+	case key.Code == 'k' && key.Mod == 0, key.Code == tea.KeyUp:
+		a.helpScroll--
+		if a.helpScroll < 0 {
+			a.helpScroll = 0
+		}
+	case key.Code == 'd' && key.Mod == tea.ModCtrl:
+		a.helpScroll += a.diffViewportHeight() / 2
+	case key.Code == 'u' && key.Mod == tea.ModCtrl:
+		a.helpScroll -= a.diffViewportHeight() / 2
+		if a.helpScroll < 0 {
+			a.helpScroll = 0
+		}
+	case key.Code == 'g' && key.Mod == 0:
+		a.helpScroll = 0
+	case key.Text == "G":
+		a.helpScroll = 9999 // will be clamped in render
 	}
 	return &a, nil
 }
@@ -322,6 +360,7 @@ func (a App) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.searchBuffer = ""
 	case key.Code == tea.KeyEnter:
 		a.lastSearch = a.searchBuffer
+		a.searchHighlight = a.searchBuffer
 		a.inputMode = modeNormal
 		a.searchNext(true)
 	case key.Code == tea.KeyBackspace:
@@ -568,6 +607,68 @@ func (a *App) prevFile() {
 			return
 		}
 	}
+}
+
+func (a *App) nextUnreviewedFile() {
+	currentFile := a.currentFileIdx()
+	for i := a.cursorLine + 1; i < len(a.annotations); i++ {
+		ann := a.annotations[i]
+		if ann.Type == annFileHeader && ann.FileIdx > currentFile {
+			path := a.diffFiles[ann.FileIdx].DisplayPath()
+			fr := a.session.GetFileReview(path)
+			if fr == nil || !fr.Reviewed {
+				a.cursorLine = i
+				a.ensureCursorVisible()
+				return
+			}
+		}
+	}
+	// Wrap around from start
+	for i := 0; i <= a.cursorLine && i < len(a.annotations); i++ {
+		ann := a.annotations[i]
+		if ann.Type == annFileHeader {
+			path := a.diffFiles[ann.FileIdx].DisplayPath()
+			fr := a.session.GetFileReview(path)
+			if fr == nil || !fr.Reviewed {
+				a.cursorLine = i
+				a.ensureCursorVisible()
+				a.setMessage("Search wrapped to top", messageInfo)
+				return
+			}
+		}
+	}
+	a.setMessage("All files reviewed", messageInfo)
+}
+
+func (a *App) prevUnreviewedFile() {
+	currentFile := a.currentFileIdx()
+	for i := a.cursorLine - 1; i >= 0; i-- {
+		ann := a.annotations[i]
+		if ann.Type == annFileHeader && ann.FileIdx < currentFile {
+			path := a.diffFiles[ann.FileIdx].DisplayPath()
+			fr := a.session.GetFileReview(path)
+			if fr == nil || !fr.Reviewed {
+				a.cursorLine = i
+				a.ensureCursorVisible()
+				return
+			}
+		}
+	}
+	// Wrap around from bottom
+	for i := len(a.annotations) - 1; i > a.cursorLine; i-- {
+		ann := a.annotations[i]
+		if ann.Type == annFileHeader {
+			path := a.diffFiles[ann.FileIdx].DisplayPath()
+			fr := a.session.GetFileReview(path)
+			if fr == nil || !fr.Reviewed {
+				a.cursorLine = i
+				a.ensureCursorVisible()
+				a.setMessage("Search wrapped to bottom", messageInfo)
+				return
+			}
+		}
+	}
+	a.setMessage("All files reviewed", messageInfo)
 }
 
 func (a *App) nextHunk() {
@@ -1353,27 +1454,72 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	case "comment":
 		return a.postConversationComment()
 	case "clear":
+		// Count draft comments first
+		draftCount := 0
 		for _, fr := range a.session.Files {
-			fr.FileComments = nil
-			fr.LineComments = make(map[int][]model.Comment)
+			for _, c := range fr.FileComments {
+				if !c.Submitted && c.ExternalID == "" {
+					draftCount++
+				}
+			}
+			for _, comments := range fr.LineComments {
+				for _, c := range comments {
+					if !c.Submitted && c.ExternalID == "" {
+						draftCount++
+					}
+				}
+			}
 		}
-		a.session.OverallReview = nil
-		a.dirty = true
-		a.rebuildAnnotations()
-		a.setMessage("All comments cleared", messageInfo)
-		return nil
-	}
-
-	if strings.HasPrefix(cmd, "set ") {
-		opt := strings.TrimPrefix(cmd, "set ")
-		switch opt {
-		case "wrap":
-			a.setMessage("Line wrapping enabled", messageInfo)
-		case "nowrap":
-			a.setMessage("Line wrapping disabled", messageInfo)
-		default:
-			a.setMessage("Unknown option: "+opt, messageWarning)
+		if a.session.OverallReview != nil && a.session.OverallReview.ExternalID == "" {
+			draftCount++
 		}
+		if draftCount == 0 {
+			a.setMessage("No draft comments to clear", messageInfo)
+			return nil
+		}
+		a.confirmPrompt = "Clear draft comments?"
+		a.confirmCallback = func(a *App) tea.Cmd {
+			cleared := 0
+			for _, fr := range a.session.Files {
+				kept := fr.FileComments[:0]
+				for _, c := range fr.FileComments {
+					if c.Submitted || c.ExternalID != "" {
+						kept = append(kept, c)
+					} else {
+						cleared++
+					}
+				}
+				if len(kept) == 0 {
+					fr.FileComments = nil
+				} else {
+					fr.FileComments = kept
+				}
+				for line, comments := range fr.LineComments {
+					var keptLine []model.Comment
+					for _, c := range comments {
+						if c.Submitted || c.ExternalID != "" {
+							keptLine = append(keptLine, c)
+						} else {
+							cleared++
+						}
+					}
+					if len(keptLine) == 0 {
+						delete(fr.LineComments, line)
+					} else {
+						fr.LineComments[line] = keptLine
+					}
+				}
+			}
+			if a.session.OverallReview != nil && a.session.OverallReview.ExternalID == "" {
+				a.session.OverallReview = nil
+				cleared++
+			}
+			a.dirty = true
+			a.rebuildAnnotations()
+			a.setMessage(fmt.Sprintf("Cleared %d draft comment(s)", cleared), messageInfo)
+			return nil
+		}
+		a.inputMode = modeConfirm
 		return nil
 	}
 

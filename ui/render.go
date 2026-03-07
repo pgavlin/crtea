@@ -325,6 +325,11 @@ func (a *App) renderStatusBar() string {
 		Bold(true)
 
 	var left string
+	dirtyMark := ""
+	if a.dirty {
+		dirtyMark = " [+]"
+	}
+
 	if a.session != nil && a.session.Provider != nil {
 		pi := a.session.Provider
 		label := fmt.Sprintf(" [%s:%s] %s #%s", a.vcsInfo.VcsType, branchStyle.Render(a.vcsInfo.BranchName), pi.Name, pi.ID)
@@ -337,15 +342,37 @@ func (a *App) renderStatusBar() string {
 			}
 			label += ": " + title
 		}
-		left = label + " "
+		left = label + dirtyMark + " "
 	} else {
-		left = fmt.Sprintf(" [%s:%s] ", a.vcsInfo.VcsType, branchStyle.Render(a.vcsInfo.BranchName))
+		left = fmt.Sprintf(" [%s:%s]%s ", a.vcsInfo.VcsType, branchStyle.Render(a.vcsInfo.BranchName), dirtyMark)
 	}
 
-	// Right: review progress
+	// Right: review progress + scroll position + horizontal scroll
 	reviewed := a.session.ReviewedCount()
 	total := len(a.diffFiles)
-	right := fmt.Sprintf(" %d/%d reviewed ", reviewed, total)
+	right := fmt.Sprintf(" %d/%d reviewed", reviewed, total)
+
+	// Scroll position percentage
+	if len(a.annotations) > 0 {
+		vpHeight := a.diffViewportHeight()
+		if a.cursorLine == 0 && len(a.annotations) <= vpHeight {
+			right += "  All"
+		} else if a.cursorLine == 0 {
+			right += "  Top"
+		} else if a.cursorLine >= len(a.annotations)-1 {
+			right += "  Bot"
+		} else {
+			pct := a.cursorLine * 100 / (len(a.annotations) - 1)
+			right += fmt.Sprintf("  %d%%", pct)
+		}
+	}
+
+	// Horizontal scroll indicator
+	if a.scrollX > 0 {
+		right += fmt.Sprintf("  Col %d", a.scrollX)
+	}
+
+	right += " "
 
 	// Pad middle
 	leftW := lipgloss.Width(left)
@@ -662,7 +689,21 @@ func (a *App) renderAnnotatedLine(ann annotatedLine, width int, isCursor, isVisu
 		if isCursor {
 			style = style.Background(th.BgHighlight)
 		}
-		return style.Render(truncateOrPad(" ⋯ expand context (Enter to expand)", width))
+		// Show line count in expander hint
+		gapLines := 0
+		if ann.FileIdx >= 0 && ann.FileIdx < len(a.diffFiles) {
+			file := a.diffFiles[ann.FileIdx]
+			if ann.gapID.HunkIdx > 0 && ann.gapID.HunkIdx < len(file.Hunks) {
+				prevHunk := file.Hunks[ann.gapID.HunkIdx-1]
+				thisHunk := file.Hunks[ann.gapID.HunkIdx]
+				gapLines = thisHunk.NewStart - (prevHunk.NewStart + prevHunk.NewCount)
+			}
+		}
+		hint := " ⋯ expand context [Enter to expand]"
+		if gapLines > 0 {
+			hint = fmt.Sprintf(" ⋯ %d lines hidden [Enter to expand]", gapLines)
+		}
+		return style.Render(truncateOrPad(hint, width))
 
 	case annExpandedContext:
 		return a.renderExpandedContextLine(ann, width, isCursor)
@@ -751,7 +792,6 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 	}
 
 	gutterStyle := lipgloss.NewStyle().Foreground(th.FgDim)
-	gutter := gutterStyle.Render(oldNo + " " + newNo + " ")
 
 	// Origin marker and content style
 	var marker string
@@ -775,10 +815,14 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 
 	if isCursor {
 		contentStyle = contentStyle.Background(th.BgHighlight)
+		gutterStyle = gutterStyle.Background(th.BgHighlight)
 	}
 	if isVisualSelected {
 		contentStyle = contentStyle.Background(th.BgHighlight).Bold(true)
+		gutterStyle = gutterStyle.Background(th.BgHighlight)
 	}
+
+	gutter := gutterStyle.Render(oldNo + " " + newNo + " ")
 
 	gutterWidth := 10                       // "1234 5678 "
 	contentWidth := width - gutterWidth - 1 // -1 for marker
@@ -796,11 +840,23 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 		bgColor = th.BgHighlight
 	}
 
+	// Search highlight pattern (case-insensitive)
+	searchPattern := strings.ToLower(a.searchHighlight)
+
 	if line.Spans != nil {
 		// Render with syntax highlighting
 		var rendered strings.Builder
 		col := 0     // visual columns emitted so far
 		skipped := 0 // visual columns skipped for horizontal scroll
+
+		// Collect visible text for search highlighting
+		type spanSegment struct {
+			text  string
+			fg    color.Color
+			start int // column offset
+		}
+		var segments []spanSegment
+
 		for _, span := range line.Spans {
 			if col >= contentWidth {
 				break
@@ -827,18 +883,101 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 				text = ansi.Truncate(text, remaining, "")
 				textWidth = lipgloss.Width(text)
 			}
-			spanStyle := lipgloss.NewStyle()
+
+			var fg color.Color
 			if span.FG != "" {
-				spanStyle = spanStyle.Foreground(lipgloss.Color(span.FG))
+				fg = lipgloss.Color(span.FG)
 			} else {
-				spanStyle = spanStyle.Foreground(contentStyle.GetForeground())
+				fg = contentStyle.GetForeground()
 			}
-			if bgColor != nil {
-				spanStyle = spanStyle.Background(bgColor)
-			}
-			rendered.WriteString(spanStyle.Render(text))
+			segments = append(segments, spanSegment{text: text, fg: fg, start: col})
 			col += textWidth
 		}
+
+		// If we have a search pattern, find matches in the concatenated visible text
+		var matchRanges [][2]int
+		if searchPattern != "" {
+			var fullText strings.Builder
+			for _, seg := range segments {
+				fullText.WriteString(seg.text)
+			}
+			ft := fullText.String()
+			ftLower := strings.ToLower(ft)
+			patLen := len(searchPattern)
+			for idx := 0; idx < len(ftLower); {
+				pos := strings.Index(ftLower[idx:], searchPattern)
+				if pos < 0 {
+					break
+				}
+				matchRanges = append(matchRanges, [2]int{idx + pos, idx + pos + patLen})
+				idx += pos + patLen
+			}
+		}
+
+		if len(matchRanges) > 0 {
+			// Render segments with search highlighting
+			hlStyle := lipgloss.NewStyle().
+				Background(th.SearchMatch).
+				Foreground(th.SearchMatchFg)
+			charOffset := 0
+			matchIdx := 0
+			for _, seg := range segments {
+				segEnd := charOffset + len(seg.text)
+				pos := 0
+				for pos < len(seg.text) && matchIdx < len(matchRanges) {
+					mStart := matchRanges[matchIdx][0] - charOffset
+					mEnd := matchRanges[matchIdx][1] - charOffset
+					if mStart >= len(seg.text) {
+						break
+					}
+					if mEnd <= 0 {
+						matchIdx++
+						continue
+					}
+					if mStart < 0 {
+						mStart = 0
+					}
+					if mEnd > len(seg.text) {
+						mEnd = len(seg.text)
+					}
+					// Render before match
+					if mStart > pos {
+						beforeStyle := lipgloss.NewStyle().Foreground(seg.fg)
+						if bgColor != nil {
+							beforeStyle = beforeStyle.Background(bgColor)
+						}
+						rendered.WriteString(beforeStyle.Render(seg.text[pos:mStart]))
+					}
+					// Render match
+					rendered.WriteString(hlStyle.Render(seg.text[mStart:mEnd]))
+					pos = mEnd
+					if matchRanges[matchIdx][1] <= segEnd {
+						matchIdx++
+					} else {
+						break
+					}
+				}
+				// Render remainder
+				if pos < len(seg.text) {
+					remStyle := lipgloss.NewStyle().Foreground(seg.fg)
+					if bgColor != nil {
+						remStyle = remStyle.Background(bgColor)
+					}
+					rendered.WriteString(remStyle.Render(seg.text[pos:]))
+				}
+				charOffset = segEnd
+			}
+		} else {
+			// No search matches — render normally
+			for _, seg := range segments {
+				spanStyle := lipgloss.NewStyle().Foreground(seg.fg)
+				if bgColor != nil {
+					spanStyle = spanStyle.Background(bgColor)
+				}
+				rendered.WriteString(spanStyle.Render(seg.text))
+			}
+		}
+
 		// Pad remaining width
 		if col < contentWidth {
 			padStyle := lipgloss.NewStyle()
@@ -860,7 +999,42 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 			content = ""
 		}
 	}
-	renderedContent := contentStyle.Render(truncateOrPad(content, contentWidth))
+	padded := truncateOrPad(content, contentWidth)
+
+	// Apply search highlighting to fallback path
+	if searchPattern != "" {
+		lower := strings.ToLower(padded)
+		patLen := len(searchPattern)
+		var matchRanges [][2]int
+		for idx := 0; idx < len(lower); {
+			pos := strings.Index(lower[idx:], searchPattern)
+			if pos < 0 {
+				break
+			}
+			matchRanges = append(matchRanges, [2]int{idx + pos, idx + pos + patLen})
+			idx += pos + patLen
+		}
+		if len(matchRanges) > 0 {
+			hlStyle := lipgloss.NewStyle().
+				Background(th.SearchMatch).
+				Foreground(th.SearchMatchFg)
+			var rendered strings.Builder
+			pos := 0
+			for _, mr := range matchRanges {
+				if mr[0] > pos {
+					rendered.WriteString(contentStyle.Render(padded[pos:mr[0]]))
+				}
+				rendered.WriteString(hlStyle.Render(padded[mr[0]:mr[1]]))
+				pos = mr[1]
+			}
+			if pos < len(padded) {
+				rendered.WriteString(contentStyle.Render(padded[pos:]))
+			}
+			return gutter + markerStyle.Render(marker) + rendered.String()
+		}
+	}
+
+	renderedContent := contentStyle.Render(padded)
 	return gutter + markerStyle.Render(marker) + renderedContent
 }
 
@@ -877,12 +1051,14 @@ func (a *App) renderExpandedContextLine(ann annotatedLine, width int, isCursor b
 	newNo := fmt.Sprintf("%4d", line.NewLineNo)
 
 	gutterStyle := lipgloss.NewStyle().Foreground(th.FgDim)
-	gutter := gutterStyle.Render(oldNo + " " + newNo + " ")
 
 	contentStyle := lipgloss.NewStyle().Foreground(th.ExpandedCtxFg)
 	if isCursor {
 		contentStyle = contentStyle.Background(th.BgHighlight)
+		gutterStyle = gutterStyle.Background(th.BgHighlight)
 	}
+
+	gutter := gutterStyle.Render(oldNo + " " + newNo + " ")
 
 	content := expandTabs(line.Content)
 	if a.scrollX > 0 {
@@ -1292,8 +1468,10 @@ func (a *App) renderHelp(height int) string {
 		"  g/G               Go to first/last line",
 		"  {N}G              Go to source line N",
 		"  h/l, ←/→          Scroll horizontally",
+		"  0/Home            Reset horizontal scroll",
 		"  {/}               Next/previous file",
 		"  [/]               Next/previous hunk",
+		"  ;n/;p             Next/previous unreviewed file",
 		"  Tab               Switch panel focus",
 		"  zz                Center cursor on screen",
 		"",
@@ -1347,30 +1525,46 @@ func (a *App) renderHelp(height int) string {
 	lineStyle := lipgloss.NewStyle().Foreground(th.FgSecondary)
 	dimStyle := lipgloss.NewStyle().Foreground(th.FgDim)
 
-	var lines []string
+	var allLines []string
 	for _, line := range helpText {
 		if line == "" {
-			lines = append(lines, "")
+			allLines = append(allLines, "")
 		} else if !strings.HasPrefix(line, "  ") {
-			lines = append(lines, headerStyle.Render(line))
+			allLines = append(allLines, headerStyle.Render(line))
 		} else {
 			parts := strings.SplitN(line, "  ", 3)
 			if len(parts) >= 3 {
 				key := dimStyle.Render(parts[1])
 				desc := lineStyle.Render(parts[2])
-				lines = append(lines, "  "+key+"  "+desc)
+				allLines = append(allLines, "  "+key+"  "+desc)
 			} else {
-				lines = append(lines, lineStyle.Render(line))
+				allLines = append(allLines, lineStyle.Render(line))
 			}
 		}
 	}
 
+	// Clamp scroll offset
+	maxScroll := len(allLines) - height
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if a.helpScroll > maxScroll {
+		a.helpScroll = maxScroll
+	}
+	if a.helpScroll < 0 {
+		a.helpScroll = 0
+	}
+
+	// Slice visible lines
+	end := a.helpScroll + height
+	if end > len(allLines) {
+		end = len(allLines)
+	}
+	lines := allLines[a.helpScroll:end]
+
 	// Pad to height
 	for len(lines) < height {
 		lines = append(lines, "")
-	}
-	if len(lines) > height {
-		lines = lines[:height]
 	}
 
 	return strings.Join(lines, "\n")
