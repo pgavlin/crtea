@@ -179,7 +179,7 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Toggle between commit list and description
 	case key.Text == "D":
-		if a.commitListItems() != nil || a.showDescription {
+		if a.commitListItems() != nil || a.showDescription || (a.session != nil && a.session.Description != "") {
 			a.showDescription = !a.showDescription
 			a.descScroll = 0
 		}

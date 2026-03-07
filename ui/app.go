@@ -165,6 +165,10 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 		store:         store,
 		theme:         th,
 	}
+	// Show description by default when there's a description but no commit list.
+	if session != nil && session.Description != "" && app.commitListItems() == nil {
+		app.showDescription = true
+	}
 	app.rebuildFileTree()
 	app.rebuildAnnotations()
 	return app
