@@ -14,6 +14,7 @@ import (
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/provider"
+	gh "github.com/pgavlin/crtea/provider/github"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/ui"
@@ -107,7 +108,13 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	var app ui.App
 	if prID := cmd.String("pr"); prID != "" {
-		app, err = runWithProvider(backend, nil, prID, th, highlighter, store)
+		info := backend.Info()
+		owner, repo, err := gh.DetectRemote(info.RootPath)
+		if err != nil {
+			return fmt.Errorf("detecting GitHub remote: %w", err)
+		}
+		p := gh.New(owner, repo)
+		app, err = runWithProvider(backend, p, prID, th, highlighter, store)
 		if err != nil {
 			return err
 		}
@@ -319,6 +326,28 @@ func runWithProvider(backend vcs.Backend, p provider.Provider, id string, th the
 
 	app := ui.NewApp(backend, files, session, th, hl, store)
 	app.SetProvider(p, id)
+
+	// Fetch commits for the commit list
+	if commits, err := p.ListCommits(id); err == nil && len(commits) > 0 {
+		commitInfos := make([]vcs.CommitInfo, len(commits))
+		commitDiffs := make(map[string][]model.DiffFile, len(commits))
+		for i, c := range commits {
+			commitInfos[i] = vcs.CommitInfo{
+				ID:      c.ID,
+				ShortID: c.ShortID,
+				Summary: c.Summary,
+				Author:  c.Author,
+				Time:    c.Time,
+			}
+			if cdiff, err := p.GetCommitDiff(id, c.ID); err == nil {
+				cf := vcs.ParseDiff(cdiff)
+				hl.HighlightFiles(cf)
+				commitDiffs[c.ID] = cf
+			}
+		}
+		app.SetCommits(commitInfos, commitDiffs)
+	}
+
 	return app, nil
 }
 
