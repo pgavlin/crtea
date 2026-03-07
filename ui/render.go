@@ -663,6 +663,8 @@ func (a *App) commentTypeColor(ct model.CommentType) color.Color {
 		return th.CommentIssue
 	case model.CommentPraise:
 		return th.CommentPraise
+	case model.CommentQuestion:
+		return th.CommentQuestion
 	default:
 		return th.CommentNote
 	}

@@ -14,6 +14,7 @@ const (
 	CommentSuggestion
 	CommentIssue
 	CommentPraise
+	CommentQuestion
 )
 
 func (t CommentType) String() string {
@@ -26,13 +27,15 @@ func (t CommentType) String() string {
 		return "Issue"
 	case CommentPraise:
 		return "Praise"
+	case CommentQuestion:
+		return "Question"
 	default:
 		return "Note"
 	}
 }
 
 func (t CommentType) Next() CommentType {
-	return (t + 1) % 4
+	return (t + 1) % 5
 }
 
 // LineSide indicates which side of the diff a comment is on.

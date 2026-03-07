@@ -39,6 +39,7 @@ type Theme struct {
 	CommentSuggestion color.Color
 	CommentIssue      color.Color
 	CommentPraise     color.Color
+	CommentQuestion   color.Color
 
 	// UI
 	BorderFocused   color.Color
@@ -94,6 +95,7 @@ func Dark() Theme {
 		CommentSuggestion: c("#a6e3a1"),
 		CommentIssue:      c("#f38ba8"),
 		CommentPraise:     c("#f9e2af"),
+		CommentQuestion:   c("#cba6f7"),
 
 		BorderFocused:   c("#89b4fa"),
 		BorderUnfocused: c("#45475a"),
@@ -143,6 +145,7 @@ func Light() Theme {
 		CommentSuggestion: c("#40a02b"),
 		CommentIssue:      c("#d20f39"),
 		CommentPraise:     c("#df8e1d"),
+		CommentQuestion:   c("#8839ef"),
 
 		BorderFocused:   c("#1e66f5"),
 		BorderUnfocused: c("#bcc0cc"),
