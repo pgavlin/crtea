@@ -3,6 +3,9 @@ package ui
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
+	"github.com/charmbracelet/x/ansi"
 	"github.com/pgavlin/crtea/model"
 )
 
@@ -50,15 +53,16 @@ func wrapComment(content string, wrapWidth int) []string {
 	}
 	var result []string
 	for _, paragraph := range strings.Split(content, "\n") {
-		if len(paragraph) <= wrapWidth {
+		if lipgloss.Width(paragraph) <= wrapWidth {
 			result = append(result, paragraph)
 			continue
 		}
-		for len(paragraph) > wrapWidth {
-			// Find last space before wrapWidth
-			breakAt := wrapWidth
-			if idx := strings.LastIndex(paragraph[:wrapWidth], " "); idx > 0 {
-				breakAt = idx
+		for lipgloss.Width(paragraph) > wrapWidth {
+			// Find last space within visual wrapWidth
+			truncated := ansi.Truncate(paragraph, wrapWidth, "")
+			breakAt := strings.LastIndex(truncated, " ")
+			if breakAt <= 0 {
+				breakAt = len(truncated)
 			}
 			result = append(result, paragraph[:breakAt])
 			paragraph = strings.TrimLeft(paragraph[breakAt:], " ")

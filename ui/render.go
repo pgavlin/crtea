@@ -78,8 +78,8 @@ func (a *App) renderCommitList(width, height int) string {
 			if maxSummary < 20 {
 				maxSummary = 20
 			}
-			if len(summary) > maxSummary {
-				summary = summary[:maxSummary-1] + "…"
+			if lipgloss.Width(summary) > maxSummary {
+				summary = ansi.Truncate(summary, maxSummary-1, "") + "…"
 			}
 
 			line = cursorStyle.Render(cursor) +
@@ -622,17 +622,33 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 		bgColor = th.BgHighlight
 	}
 
-	if line.Spans != nil && a.scrollX == 0 {
+	if line.Spans != nil {
 		// Render with syntax highlighting
 		var rendered strings.Builder
-		col := 0
+		col := 0       // visual columns emitted so far
+		skipped := 0   // visual columns skipped for horizontal scroll
 		for _, span := range line.Spans {
 			if col >= contentWidth {
 				break
 			}
-			text := span.Text
-			remaining := contentWidth - col
+			text := expandTabs(span.Text)
 			textWidth := lipgloss.Width(text)
+
+			// Skip spans before the horizontal scroll offset
+			if a.scrollX > 0 && skipped < a.scrollX {
+				if skipped+textWidth <= a.scrollX {
+					skipped += textWidth
+					continue
+				}
+				// Partially visible span: trim the leading portion
+				trimCols := a.scrollX - skipped
+				prefix := ansi.Truncate(text, trimCols, "")
+				text = text[len(prefix):]
+				textWidth = lipgloss.Width(text)
+				skipped = a.scrollX
+			}
+
+			remaining := contentWidth - col
 			if textWidth > remaining {
 				text = ansi.Truncate(text, remaining, "")
 				textWidth = lipgloss.Width(text)
@@ -660,12 +676,15 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 		return gutter + markerStyle.Render(marker) + rendered.String()
 	}
 
-	// Fallback: no syntax highlighting or horizontal scroll active
-	content := line.Content
-	if a.scrollX > 0 && len(content) > a.scrollX {
-		content = content[a.scrollX:]
-	} else if a.scrollX > 0 {
-		content = ""
+	// Fallback: no syntax highlighting
+	content := expandTabs(line.Content)
+	if a.scrollX > 0 {
+		if lipgloss.Width(content) > a.scrollX {
+			prefix := ansi.Truncate(content, a.scrollX, "")
+			content = content[len(prefix):]
+		} else {
+			content = ""
+		}
 	}
 	renderedContent := contentStyle.Render(truncateOrPad(content, contentWidth))
 	return gutter + markerStyle.Render(marker) + renderedContent
@@ -691,11 +710,14 @@ func (a *App) renderExpandedContextLine(ann annotatedLine, width int, isCursor b
 		contentStyle = contentStyle.Background(th.BgHighlight)
 	}
 
-	content := line.Content
-	if a.scrollX > 0 && len(content) > a.scrollX {
-		content = content[a.scrollX:]
-	} else if a.scrollX > 0 {
-		content = ""
+	content := expandTabs(line.Content)
+	if a.scrollX > 0 {
+		if lipgloss.Width(content) > a.scrollX {
+			prefix := ansi.Truncate(content, a.scrollX, "")
+			content = content[len(prefix):]
+		} else {
+			content = ""
+		}
 	}
 
 	gutterWidth := 10
@@ -1055,7 +1077,7 @@ func (a *App) renderHelp(height int) string {
 
 	helpText := []string{
 		"Navigation",
-		"  j/k, ↑/↓         Move cursor up/down",
+		"  j/k, ↑/↓          Move cursor up/down",
 		"  Ctrl-d/u          Half page down/up",
 		"  Ctrl-f/b          Full page down/up",
 		"  g/G               Go to first/last line",
@@ -1141,6 +1163,28 @@ func (a *App) renderHelp(height int) string {
 }
 
 // Utility functions
+
+const tabWidth = 4
+
+// expandTabs replaces tab characters with spaces aligned to tabWidth stops.
+func expandTabs(s string) string {
+	if !strings.Contains(s, "\t") {
+		return s
+	}
+	var b strings.Builder
+	col := 0
+	for _, r := range s {
+		if r == '\t' {
+			spaces := tabWidth - (col % tabWidth)
+			b.WriteString(strings.Repeat(" ", spaces))
+			col += spaces
+		} else {
+			b.WriteRune(r)
+			col++
+		}
+	}
+	return b.String()
+}
 
 func truncateOrPad(s string, width int) string {
 	if width <= 0 {
