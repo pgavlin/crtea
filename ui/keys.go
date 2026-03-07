@@ -40,6 +40,8 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a.handleReviewKey(msg)
 	case modeBug:
 		return a.handleBugKey(msg)
+	case modeConversation:
+		return a.handleConversationKey(msg)
 	default:
 		return a.handleNormalKey(msg)
 	}
@@ -124,27 +126,41 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Tab to switch panels
 	case key.Code == tea.KeyTab:
 		hasCommitList := a.commitListHeight() > 0
+		hasConversation := a.showConversation
 		switch a.focusedPanel {
 		case panelDiff:
 			if a.showFileList {
 				a.focusedPanel = panelFileList
 			} else if hasCommitList {
 				a.focusedPanel = panelCommitList
+			} else if hasConversation {
+				a.focusedPanel = panelConversation
 			}
 		case panelFileList:
 			if hasCommitList {
 				a.focusedPanel = panelCommitList
+			} else if hasConversation {
+				a.focusedPanel = panelConversation
 			} else {
 				a.focusedPanel = panelDiff
 			}
 		case panelCommitList:
+			if hasConversation {
+				a.focusedPanel = panelConversation
+			} else {
+				a.focusedPanel = panelDiff
+			}
+		case panelConversation:
 			a.focusedPanel = panelDiff
 		}
 
-	// Enter: jump to file / toggle dir (file list) or toggle expand (diff)
+	// Enter: jump to file / toggle dir (file list), compose message (conversation), or toggle expand (diff)
 	case key.Code == tea.KeyEnter:
 		if a.focusedPanel == panelFileList {
 			a.fileListEnter()
+		} else if a.focusedPanel == panelConversation {
+			cmd := a.postConversationComment()
+			return &a, cmd
 		} else if a.focusedPanel == panelDiff {
 			a.toggleExpandAtCursor()
 		}
@@ -155,6 +171,10 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Comments
 	case key.Code == 'c' && key.Mod == 0:
+		if a.focusedPanel == panelConversation {
+			cmd := a.postConversationComment()
+			return &a, cmd
+		}
 		a.enterLineComment()
 	case key.Text == "C":
 		a.enterFileComment()
@@ -189,10 +209,14 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.descScroll = 0
 		}
 	case key.Text == "P":
-		if a.session != nil && len(a.session.Conversation) > 0 {
+		if a.session != nil {
 			a.showConversation = !a.showConversation
-			a.showDescription = false
-			a.descScroll = 0
+			a.convScroll = 0
+			if a.showConversation {
+				a.focusedPanel = panelConversation
+			} else if a.focusedPanel == panelConversation {
+				a.focusedPanel = panelDiff
+			}
 		}
 
 	// Visual mode
@@ -393,6 +417,10 @@ func (a *App) cursorDown(n int) {
 		}
 		return
 	}
+	if a.focusedPanel == panelConversation {
+		a.convScroll += n
+		return
+	}
 	if a.focusedPanel == panelCommitList {
 		if a.showDescription {
 			a.descScroll += n
@@ -434,6 +462,13 @@ func (a *App) cursorUp(n int) {
 		a.fileListCursor -= n
 		if a.fileListCursor < 0 {
 			a.fileListCursor = 0
+		}
+		return
+	}
+	if a.focusedPanel == panelConversation {
+		a.convScroll -= n
+		if a.convScroll < 0 {
+			a.convScroll = 0
 		}
 		return
 	}
@@ -1054,34 +1089,31 @@ func (a App) handleReviewKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return &a, nil
 }
 
-func (a *App) saveOverallReview() {
-	body := strings.TrimSpace(a.reviewBuffer)
-
-	if a.conversationMode {
-		a.conversationMode = false
-		if body == "" {
-			a.reviewBuffer = ""
-			return
-		}
-		if a.provider != nil {
-			if err := a.provider.PostConversationComment(a.providerID, body); err != nil {
-				a.setMessage("Post failed: "+err.Error(), messageError)
-				a.reviewBuffer = ""
-				return
-			}
-		}
-		// Add locally too
-		cc := model.ConversationComment{
-			Author:    a.session.Reviewer,
-			Body:      body,
-			CreatedAt: time.Now(),
-		}
-		a.session.Conversation = append(a.session.Conversation, cc)
-		a.dirty = true
-		a.reviewBuffer = ""
-		a.setMessage("Comment posted", messageInfo)
+func (a *App) saveConversationComment() {
+	body := strings.TrimSpace(a.convBuffer)
+	a.convBuffer = ""
+	a.convCursor = 0
+	if body == "" {
 		return
 	}
+	if a.provider != nil {
+		if err := a.provider.PostConversationComment(a.providerID, body); err != nil {
+			a.setMessage("Post failed: "+err.Error(), messageError)
+			return
+		}
+	}
+	cc := model.ConversationComment{
+		Author:    a.session.Reviewer,
+		Body:      body,
+		CreatedAt: time.Now(),
+	}
+	a.session.Conversation = append(a.session.Conversation, cc)
+	a.dirty = true
+	a.setMessage("Comment posted", messageInfo)
+}
+
+func (a *App) saveOverallReview() {
+	body := strings.TrimSpace(a.reviewBuffer)
 
 	if body == "" && a.reviewStatus == model.ApprovalNeutral {
 		a.session.OverallReview = nil
@@ -1124,6 +1156,33 @@ func (a App) handleBugKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if key.Text != "" {
 			a.bugBuffer = a.bugBuffer[:a.bugCursor] + key.Text + a.bugBuffer[a.bugCursor:]
 			a.bugCursor += len(key.Text)
+		}
+	}
+	return &a, nil
+}
+
+func (a App) handleConversationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.Key()
+	switch {
+	case key.Code == tea.KeyEscape:
+		a.inputMode = modeNormal
+		a.convBuffer = ""
+		a.convCursor = 0
+	case key.Code == tea.KeyEnter && key.Mod == tea.ModShift:
+		a.convBuffer = a.convBuffer[:a.convCursor] + "\n" + a.convBuffer[a.convCursor:]
+		a.convCursor++
+	case key.Code == tea.KeyEnter:
+		a.saveConversationComment()
+		a.inputMode = modeNormal
+	case key.Code == tea.KeyBackspace:
+		if a.convCursor > 0 {
+			a.convBuffer = a.convBuffer[:a.convCursor-1] + a.convBuffer[a.convCursor:]
+			a.convCursor--
+		}
+	default:
+		if key.Text != "" {
+			a.convBuffer = a.convBuffer[:a.convCursor] + key.Text + a.convBuffer[a.convCursor:]
+			a.convCursor += len(key.Text)
 		}
 	}
 	return &a, nil
@@ -1327,11 +1386,14 @@ func (a *App) postConversationComment() tea.Cmd {
 		a.setMessage("Not connected to a remote provider", messageWarning)
 		return nil
 	}
-	a.conversationMode = true
-	a.reviewBuffer = ""
-	a.reviewCursor = 0
-	a.reviewStatus = model.ApprovalNeutral
-	a.inputMode = modeReview
+	a.convBuffer = ""
+	a.convCursor = 0
+	a.inputMode = modeConversation
+	a.focusedPanel = panelConversation
+	if !a.showConversation {
+		a.showConversation = true
+		a.convScroll = 0
+	}
 	return nil
 }
 

@@ -159,9 +159,42 @@ func (a *App) renderDescription(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (a *App) renderConversation(width, height int) string {
+func (a *App) renderConversation(width, height int, isFocused bool) string {
 	th := a.theme
-	visibleLines := height - 1 // last line is separator
+
+	borderColor := th.BorderUnfocused
+	if isFocused {
+		borderColor = th.BorderFocused
+	}
+
+	// Title separator
+	titleStyle := lipgloss.NewStyle().Foreground(borderColor)
+	title := titleStyle.Render(" Conversation ")
+	sepStyle := lipgloss.NewStyle().Foreground(borderColor)
+	titleWidth := lipgloss.Width(title)
+	leftWidth := 2
+	rightWidth := width - leftWidth - titleWidth
+	if rightWidth < 0 {
+		rightWidth = 0
+	}
+	sep := sepStyle.Render(strings.Repeat("─", leftWidth)) + title
+	if rightWidth > 0 {
+		sep += sepStyle.Render(strings.Repeat("─", rightWidth))
+	}
+
+	// Editor takes some lines at the bottom when composing
+	editorHeight := 0
+	if a.inputMode == modeConversation {
+		editorHeight = 4 // top border + 2 content lines + bottom border
+		if editorHeight > height-2 {
+			editorHeight = height - 2
+		}
+		if editorHeight < 3 {
+			editorHeight = 3
+		}
+	}
+
+	visibleLines := height - 1 - editorHeight // -1 for top separator
 	if visibleLines < 1 {
 		visibleLines = 1
 	}
@@ -171,40 +204,111 @@ func (a *App) renderConversation(width, height int) string {
 	timeStyle := lipgloss.NewStyle().Foreground(th.FgDim)
 
 	var contentLines []string
-	for _, cc := range a.session.Conversation {
-		header := "  " + authorStyle.Render("@"+cc.Author)
-		if !cc.CreatedAt.IsZero() {
-			header += " " + timeStyle.Render(cc.CreatedAt.Format("Jan 2 15:04"))
-		}
-		contentLines = append(contentLines, truncateOrPad(header, width))
-		for _, bodyLine := range strings.Split(cc.Body, "\n") {
-			contentLines = append(contentLines, truncateOrPad("    "+bodyStyle.Render(bodyLine), width))
+	if a.session != nil {
+		for _, cc := range a.session.Conversation {
+			header := "  " + authorStyle.Render("@"+cc.Author)
+			if !cc.CreatedAt.IsZero() {
+				header += " " + timeStyle.Render(cc.CreatedAt.Format("Jan 2 15:04"))
+			}
+			contentLines = append(contentLines, truncateOrPad(header, width))
+			for _, bodyLine := range strings.Split(cc.Body, "\n") {
+				contentLines = append(contentLines, truncateOrPad("    "+bodyStyle.Render(bodyLine), width))
+			}
 		}
 	}
 
+	if len(contentLines) == 0 && a.inputMode != modeConversation {
+		emptyMsg := lipgloss.NewStyle().Foreground(th.FgDim).Render("  No conversation yet. Press c to start one.")
+		contentLines = append(contentLines, truncateOrPad(emptyMsg, width))
+	}
+
+	// Auto-scroll to bottom when composing
+	if a.inputMode == modeConversation {
+		a.convScroll = len(contentLines) - visibleLines
+	}
+
 	// Scroll
-	if a.descScroll > len(contentLines)-visibleLines {
-		a.descScroll = len(contentLines) - visibleLines
+	if a.convScroll > len(contentLines)-visibleLines {
+		a.convScroll = len(contentLines) - visibleLines
 	}
-	if a.descScroll < 0 {
-		a.descScroll = 0
+	if a.convScroll < 0 {
+		a.convScroll = 0
 	}
-	scrollEnd := a.descScroll + visibleLines
+	scrollEnd := a.convScroll + visibleLines
 	if scrollEnd > len(contentLines) {
 		scrollEnd = len(contentLines)
 	}
 
-	var lines []string
-	for i := a.descScroll; i < scrollEnd; i++ {
+	lines := []string{sep}
+	for i := a.convScroll; i < scrollEnd; i++ {
 		lines = append(lines, contentLines[i])
 	}
-	for len(lines) < visibleLines {
+	for len(lines) < height-editorHeight {
 		lines = append(lines, strings.Repeat(" ", width))
 	}
 
-	sep := lipgloss.NewStyle().Foreground(th.BorderUnfocused).Render(strings.Repeat("─", width))
-	lines = append(lines, sep)
+	// Inline editor
+	if editorHeight > 0 {
+		lines = append(lines, a.renderConversationEditor(width, editorHeight)...)
+	}
+
 	return strings.Join(lines, "\n")
+}
+
+func (a *App) renderConversationEditor(width, height int) []string {
+	th := a.theme
+	borderColor := th.BorderFocused
+	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
+
+	innerWidth := width - 4 // "│ " + content + " │"
+	if innerWidth < 10 {
+		innerWidth = 10
+	}
+
+	// Top border with label
+	labelStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true)
+	label := labelStyle.Render(" New message ")
+	labelW := lipgloss.Width(label)
+	restWidth := width - 2 - labelW
+	if restWidth < 1 {
+		restWidth = 1
+	}
+
+	var lines []string
+	lines = append(lines, borderStyle.Render("╭")+label+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
+
+	// Content with cursor
+	buf := a.convBuffer
+	cursor := a.convCursor
+	before := buf[:cursor]
+	after := buf[cursor:]
+	display := before + "█" + after
+
+	wrapWidth := innerWidth
+	if wrapWidth < 10 {
+		wrapWidth = 0
+	}
+	wrapped := wrapComment(display, wrapWidth)
+	if len(wrapped) == 0 {
+		wrapped = []string{"█"}
+	}
+
+	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+	maxContentLines := height - 2 // top + bottom border
+	for i, wl := range wrapped {
+		if i >= maxContentLines {
+			break
+		}
+		inner := truncateOrPad(wl, innerWidth)
+		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(inner)+" "+borderStyle.Render("│"))
+	}
+
+	for len(lines) < height-1 {
+		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(strings.Repeat(" ", innerWidth))+" "+borderStyle.Render("│"))
+	}
+
+	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", width-2)+"╯"))
+	return lines
 }
 
 func (a *App) renderStatusBar() string {
@@ -272,12 +376,10 @@ func (a *App) renderFooter() string {
 		} else {
 			content = " Enter: save | Esc: cancel | Tab: cycle type | Shift-Enter: newline"
 		}
+	case modeConversation:
+		content = " Enter: post | Esc: cancel | Shift-Enter: newline"
 	case modeReview:
-		if a.conversationMode {
-			content = " Conversation | Enter: post | Esc: cancel | Shift-Enter: newline"
-		} else {
-			content = " Enter: save | Esc: cancel | Tab: cycle status | Shift-Enter: newline"
-		}
+		content = " Enter: save | Esc: cancel | Tab: cycle status | Shift-Enter: newline"
 	case modeBug:
 		content = " Enter: submit | Esc: cancel | Shift-Enter: newline"
 	case modeConfirm:
@@ -303,6 +405,8 @@ func (a *App) renderFooter() string {
 				msgStyle = msgStyle.Foreground(th.MessageErrorBg).Background(th.StatusBarBg)
 			}
 			content = " " + msgStyle.Render(a.message.text)
+		} else if a.focusedPanel == panelConversation {
+			content = " j/k: scroll | c/Enter: new message | P: close | Tab: switch panel"
 		} else {
 			comments := a.session.TotalComments()
 			if comments > 0 {

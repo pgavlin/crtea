@@ -27,6 +27,7 @@ const (
 	modeVisualSelect
 	modeReview
 	modeBug
+	modeConversation
 )
 
 type focusedPanel int
@@ -35,6 +36,7 @@ const (
 	panelDiff focusedPanel = iota
 	panelFileList
 	panelCommitList
+	panelConversation
 )
 
 type messageLevel int
@@ -86,6 +88,7 @@ type App struct {
 	showDescription  bool // show description instead of commit list
 	showConversation bool // show conversation panel
 	descScroll       int  // scroll offset for description panel
+	convScroll       int  // scroll offset for conversation panel
 
 	// UI state
 	inputMode    inputMode
@@ -131,10 +134,13 @@ type App struct {
 	replyToID string // ExternalID of comment being replied to
 
 	// Overall review editor
-	reviewBuffer       string
-	reviewCursor       int
-	reviewStatus       model.ApprovalStatus
-	conversationMode   bool // true when review editor is for conversation comment
+	reviewBuffer string
+	reviewCursor int
+	reviewStatus model.ApprovalStatus
+
+	// Conversation editor
+	convBuffer string
+	convCursor int
 
 	// Bug report editor
 	bugBuffer string
@@ -336,9 +342,7 @@ func (a App) View() tea.View {
 	contentHeight := a.height - 2 // header + footer
 	tpHeight := a.topPanelHeight()
 	if tpHeight > 0 {
-		if a.showConversation {
-			b.WriteString(a.renderConversation(a.width, tpHeight))
-		} else if a.showDescription {
+		if a.showDescription {
 			b.WriteString(a.renderDescription(a.width, tpHeight))
 		} else {
 			b.WriteString(a.renderCommitList(a.width, tpHeight))
@@ -348,6 +352,12 @@ func (a App) View() tea.View {
 	}
 	if contentHeight < 1 {
 		contentHeight = 1
+	}
+
+	// Conversation panel (bottom half of content area)
+	convHeight := a.conversationPanelHeight(contentHeight)
+	if convHeight > 0 {
+		contentHeight -= convHeight
 	}
 
 	// Bug report editor pane (steals height from content area)
@@ -402,6 +412,12 @@ func (a App) View() tea.View {
 		b.WriteString(joinHorizontal(fileList, diffView, contentHeight))
 	} else {
 		b.WriteString(a.renderDiffView(a.width, contentHeight))
+	}
+
+	// Conversation panel (below diff content)
+	if convHeight > 0 {
+		b.WriteString("\n")
+		b.WriteString(a.renderConversation(a.width, convHeight, a.focusedPanel == panelConversation))
 	}
 
 	// Footer (1 line)
@@ -478,18 +494,20 @@ func (a *App) commitListItems() []commitListEntry {
 	return items
 }
 
-// topPanelHeight returns the height of the top panel (commit list, description, or conversation, 0 if hidden).
-func (a *App) topPanelHeight() int {
-	if a.showConversation {
-		h := len(a.session.Conversation)*2 + 1 // 2 lines per comment + separator
-		if h > 12 {
-			h = 12
-		}
-		if h < 3 {
-			h = 3
-		}
-		return h
+// conversationPanelHeight returns the height of the conversation panel (0 if hidden).
+func (a *App) conversationPanelHeight(contentHeight int) int {
+	if !a.showConversation {
+		return 0
 	}
+	h := contentHeight / 2
+	if h < 3 {
+		h = 3
+	}
+	return h
+}
+
+// topPanelHeight returns the height of the top panel (commit list or description, 0 if hidden).
+func (a *App) topPanelHeight() int {
 	if a.showDescription {
 		h := a.descriptionLineCount() + 1 // content + separator
 		if h > 12 {
