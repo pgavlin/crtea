@@ -55,6 +55,15 @@ func (g *GitBackend) GetWorkingTreeDiff() ([]model.DiffFile, error) {
 	return parseDiff(out), nil
 }
 
+func (g *GitBackend) GetRevisionDiff(revSpec string) ([]model.DiffFile, error) {
+	args := []string{"diff", revSpec, "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/"}
+	out, err := gitOutput(g.info.RootPath, args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseDiff(out), nil
+}
+
 func (g *GitBackend) GetCommitRangeDiff(ids []string) ([]model.DiffFile, error) {
 	if len(ids) == 0 {
 		return nil, nil

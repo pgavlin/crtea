@@ -29,6 +29,7 @@ type Backend interface {
 	Info() VcsInfo
 	GetWorkingTreeDiff() ([]model.DiffFile, error)
 	GetCommitRangeDiff(ids []string) ([]model.DiffFile, error)
+	GetRevisionDiff(revSpec string) ([]model.DiffFile, error)
 	FetchContextLines(filePath string, status model.FileStatus, startLine, endLine int) ([]model.DiffLine, error)
 	GetRecentCommits(offset, limit int) ([]CommitInfo, error)
 }

@@ -40,8 +40,7 @@ func main() {
 
 	if *revisions != "" {
 		diffSource = model.DiffCommitRange
-		ids := parseRevisions(*revisions)
-		files, err = backend.GetCommitRangeDiff(ids)
+		files, err = backend.GetRevisionDiff(*revisions)
 	} else {
 		files, err = backend.GetWorkingTreeDiff()
 	}
@@ -85,8 +84,3 @@ func main() {
 	}
 }
 
-func parseRevisions(rev string) []string {
-	// Simple: just return the revision spec as a single element
-	// The git backend handles range formats like "abc..def"
-	return []string{rev}
-}
