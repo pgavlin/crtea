@@ -12,6 +12,100 @@ import (
 
 // Rendering styles - these are created from the theme at render time
 
+func (a *App) renderCommitList(width, height int) string {
+	th := a.theme
+	items := a.commitListItems()
+
+	isFocused := a.focusedPanel == PanelCommitList
+
+	// Determine visible range (last line is separator)
+	visibleItems := height - 1
+	if visibleItems < 1 {
+		visibleItems = 1
+	}
+	scrollStart := 0
+	if a.commitCursor >= scrollStart+visibleItems {
+		scrollStart = a.commitCursor - visibleItems + 1
+	}
+	scrollEnd := scrollStart + visibleItems
+	if scrollEnd > len(items) {
+		scrollEnd = len(items)
+	}
+
+	var lines []string
+	for i := scrollStart; i < scrollEnd; i++ {
+		item := items[i]
+		isCursor := i == a.commitCursor && isFocused
+		isEnabled := a.enabledCommits[item.key]
+
+		cursor := "  "
+		if isCursor {
+			cursor = "> "
+		}
+
+		check := "○"
+		if isEnabled {
+			check = "●"
+		}
+
+		cursorStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(isCursor)
+		checkStyle := lipgloss.NewStyle().Foreground(th.CommentNote)
+		if isEnabled {
+			checkStyle = checkStyle.Bold(true)
+		}
+
+		var line string
+		if item.isWorkingTree {
+			labelStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+			if isCursor {
+				labelStyle = labelStyle.Background(th.BgHighlight)
+			}
+			line = cursorStyle.Render(cursor) + checkStyle.Render(check) + " " + labelStyle.Render("Working tree changes")
+		} else {
+			c := item.commit
+			hashStyle := lipgloss.NewStyle().Foreground(th.FileModified)
+			summaryStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+			metaStyle := lipgloss.NewStyle().Foreground(th.FgDim)
+			if isCursor {
+				hashStyle = hashStyle.Background(th.BgHighlight)
+				summaryStyle = summaryStyle.Background(th.BgHighlight)
+				metaStyle = metaStyle.Background(th.BgHighlight)
+			}
+
+			summary := c.Summary
+			maxSummary := width - 40
+			if maxSummary < 20 {
+				maxSummary = 20
+			}
+			if len(summary) > maxSummary {
+				summary = summary[:maxSummary-1] + "…"
+			}
+
+			line = cursorStyle.Render(cursor) +
+				checkStyle.Render(check) + " " +
+				hashStyle.Render(c.ShortID) + " " +
+				summaryStyle.Render(summary) +
+				metaStyle.Render("  "+c.Author+", "+relativeTime(c.Time))
+		}
+		lines = append(lines, truncateOrPad(line, width))
+	}
+
+	// Pad to fill visible area
+	for len(lines) < visibleItems {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+
+	// Separator line
+	borderColor := th.BorderUnfocused
+	if isFocused {
+		borderColor = th.BorderFocused
+	}
+	sep := lipgloss.NewStyle().Foreground(borderColor).Render(strings.Repeat("─", width))
+	lines = append(lines, sep)
+
+	return strings.Join(lines, "\n")
+}
+
 func (a *App) renderStatusBar() string {
 	th := a.theme
 
@@ -780,6 +874,10 @@ func (a *App) renderHelp(height int) string {
 		"  ;e                Toggle file list",
 		"  ;h/;l             Focus file list / diff",
 		"  Enter             Jump to file (in file list)",
+		"",
+		"Commit List",
+		"  Tab               Cycle panel focus",
+		"  Space             Toggle commit on/off",
 		"",
 		"Commands",
 		"  :q / :quit        Quit",

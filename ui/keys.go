@@ -115,12 +115,22 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Tab to switch panels
 	case key.Code == tea.KeyTab:
-		if a.showFileList {
-			if a.focusedPanel == PanelDiff {
+		hasCommitList := a.commitListHeight() > 0
+		switch a.focusedPanel {
+		case PanelDiff:
+			if a.showFileList {
 				a.focusedPanel = PanelFileList
+			} else if hasCommitList {
+				a.focusedPanel = PanelCommitList
+			}
+		case PanelFileList:
+			if hasCommitList {
+				a.focusedPanel = PanelCommitList
 			} else {
 				a.focusedPanel = PanelDiff
 			}
+		case PanelCommitList:
+			a.focusedPanel = PanelDiff
 		}
 
 	// Enter: jump to file / toggle dir (file list) or toggle expand (diff)
@@ -150,6 +160,12 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.pendingPrefix = 'z'
 	case key.Code == ';' && key.Mod == 0:
 		a.pendingPrefix = ';'
+
+	// Toggle commit (in commit list)
+	case key.Code == ' ':
+		if a.focusedPanel == PanelCommitList {
+			a.toggleCommitAtCursor()
+		}
 
 	// Visual mode
 	case key.Code == 'v' && key.Mod == 0:
@@ -336,6 +352,17 @@ func (a *App) cursorDown(n int) {
 		}
 		return
 	}
+	if a.focusedPanel == PanelCommitList {
+		items := a.commitListItems()
+		a.commitCursor += n
+		if a.commitCursor >= len(items) {
+			a.commitCursor = len(items) - 1
+		}
+		if a.commitCursor < 0 {
+			a.commitCursor = 0
+		}
+		return
+	}
 
 	a.cursorLine += n
 	if a.cursorLine >= len(a.annotations) {
@@ -352,6 +379,13 @@ func (a *App) cursorUp(n int) {
 		a.fileListCursor -= n
 		if a.fileListCursor < 0 {
 			a.fileListCursor = 0
+		}
+		return
+	}
+	if a.focusedPanel == PanelCommitList {
+		a.commitCursor -= n
+		if a.commitCursor < 0 {
+			a.commitCursor = 0
 		}
 		return
 	}

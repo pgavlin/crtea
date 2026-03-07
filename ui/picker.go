@@ -21,10 +21,19 @@ const (
 	PhasePicker
 )
 
+const worktreeKey = "worktree"
+
 // PickerItem represents one selectable row in the commit picker.
 type PickerItem struct {
 	IsWorkingTree bool
 	Commit        vcs.CommitInfo
+}
+
+// commitListEntry represents one row in the review commit list panel.
+type commitListEntry struct {
+	key           string
+	isWorkingTree bool
+	commit        vcs.CommitInfo
 }
 
 func (a App) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -62,76 +71,70 @@ func (a App) pickerConfirm() (tea.Model, tea.Cmd) {
 		a.pickerSelected[a.pickerCursor] = true
 	}
 
-	var files []model.DiffFile
-	var err error
-	var diffSource model.DiffSource
+	includesWorkTree := a.pickerSelected[0]
 
-	includesWorkingTree := a.pickerSelected[0]
-
-	// Find oldest selected commit (highest index = oldest, since items are newest-first)
-	oldestCommitIdx := -1
-	for idx := range a.pickerSelected {
-		if idx == 0 {
-			continue // skip working tree entry
-		}
-		if idx > oldestCommitIdx {
-			oldestCommitIdx = idx
+	// Collect selected commits (newest-first, matching picker order)
+	var commits []vcs.CommitInfo
+	for i := 1; i < len(a.pickerItems); i++ {
+		if a.pickerSelected[i] {
+			commits = append(commits, a.pickerItems[i].Commit)
 		}
 	}
 
-	switch {
-	case includesWorkingTree && oldestCommitIdx == -1:
-		// Working tree only
-		diffSource = model.DiffWorkingTree
-		files, err = a.vcs.GetWorkingTreeDiff()
-	case includesWorkingTree && oldestCommitIdx >= 0:
-		// Commits + working tree: diff from oldest commit's parent to working tree
-		diffSource = model.DiffWorkingTree
-		oldest := a.pickerItems[oldestCommitIdx].Commit.ID
-		files, err = a.vcs.GetRevisionDiff(oldest + "^")
-	default:
-		// Commits only
-		diffSource = model.DiffCommitRange
-		minIdx := len(a.pickerItems)
-		for idx := range a.pickerSelected {
-			if idx < minIdx {
-				minIdx = idx
+	// Fetch per-commit diffs
+	commitDiffs := make(map[string][]model.DiffFile)
+	enabledCommits := make(map[string]bool)
+
+	for _, c := range commits {
+		files, err := a.vcs.GetRevisionDiff(c.ID + "^.." + c.ID)
+		if err == nil {
+			if a.highlighter != nil {
+				a.highlighter.HighlightFiles(files)
 			}
+			commitDiffs[c.ID] = files
 		}
-		newest := a.pickerItems[minIdx].Commit.ID
-		oldest := a.pickerItems[oldestCommitIdx].Commit.ID
-		if newest == oldest {
-			files, err = a.vcs.GetRevisionDiff(oldest + "^.." + oldest)
-		} else {
-			files, err = a.vcs.GetRevisionDiff(oldest + "^.." + newest)
-		}
+		enabledCommits[c.ID] = true
 	}
 
-	if err != nil {
-		a.setMessage("Error loading diff: "+err.Error(), MessageError)
-		return &a, nil
+	if includesWorkTree {
+		files, err := a.vcs.GetWorkingTreeDiff()
+		if err == nil {
+			if a.highlighter != nil {
+				a.highlighter.HighlightFiles(files)
+			}
+			commitDiffs[worktreeKey] = files
+		}
+		enabledCommits[worktreeKey] = true
 	}
 
-	if len(files) == 0 {
+	a.reviewCommits = commits
+	a.commitDiffs = commitDiffs
+	a.enabledCommits = enabledCommits
+	a.includesWorkTree = includesWorkTree
+
+	// Merge enabled diffs
+	a.diffFiles = a.mergeEnabledDiffs()
+
+	if len(a.diffFiles) == 0 {
 		a.setMessage("No changes found", MessageWarning)
 		return &a, nil
 	}
 
-	if a.highlighter != nil {
-		a.highlighter.HighlightFiles(files)
-	}
-
+	// Session
 	info := a.vcsInfo
+	diffSource := model.DiffCommitRange
+	if includesWorkTree && len(commits) == 0 {
+		diffSource = model.DiffWorkingTree
+	}
 	session, _ := a.store.LoadLatest(info.RootPath, info.BranchName, diffSource)
 	if session == nil {
 		session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 	}
-	for _, f := range files {
+	for _, f := range a.diffFiles {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
 	a.session = session
-	a.diffFiles = files
 	a.phase = PhaseReview
 	a.inputMode = ModeNormal
 	a.focusedPanel = PanelDiff
