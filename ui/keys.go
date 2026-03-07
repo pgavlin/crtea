@@ -800,6 +800,26 @@ func (a *App) replyToCommentAtCursor() {
 		return
 	}
 
+	// Move cursor to the last annotation line of the last comment in this thread
+	// so the editor appears after the entire thread, not mid-comment.
+	lastThreadLine := a.cursorLine
+	for j := a.cursorLine + 1; j < len(a.annotations); j++ {
+		next := a.annotations[j]
+		if next.Type != annLineComment {
+			break
+		}
+		// Still same line number and side?
+		nextLineNo := next.NewLineNo
+		if next.Side == model.SideOld {
+			nextLineNo = next.OldLineNo
+		}
+		if nextLineNo != lineNo || next.Side != side {
+			break
+		}
+		lastThreadLine = j
+	}
+	a.cursorLine = lastThreadLine
+
 	a.replyToID = replyTo
 	a.commentBuffer = ""
 	a.commentCursor = 0
