@@ -272,6 +272,27 @@ func (g *GitHub) PostConversationComment(id string, body string) error {
 	return nil
 }
 
+// Seed records the initial state of the review so that the first Refresh
+// correctly reports only items that appeared after startup.
+func (g *GitHub) Seed(rr *provider.ReviewRequest, comments []provider.Comment, reviews []provider.Review, conv []provider.ConversationComment) {
+	g.lastHeadSHA = rr.HeadSHA
+
+	g.lastCommentIDs = make(map[string]bool, len(comments))
+	for _, c := range comments {
+		g.lastCommentIDs[c.ExternalID] = true
+	}
+
+	g.lastReviewIDs = make(map[string]bool, len(reviews))
+	for _, r := range reviews {
+		g.lastReviewIDs[r.ExternalID] = true
+	}
+
+	g.lastConvIDs = make(map[string]bool, len(conv))
+	for _, c := range conv {
+		g.lastConvIDs[c.ExternalID] = true
+	}
+}
+
 func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error) {
 	result := &provider.RefreshResult{}
 

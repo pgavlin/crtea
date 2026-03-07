@@ -289,7 +289,8 @@ func runWithProvider(backend vcs.Backend, p provider.Provider, id string, th the
 	}
 
 	// Fetch existing reviews
-	if reviews, err := p.ListReviews(id); err == nil {
+	reviews, _ := p.ListReviews(id)
+	if len(reviews) > 0 {
 		session.Reviews = make([]model.OverallReview, len(reviews))
 		for i, r := range reviews {
 			session.Reviews[i] = provider.ImportReview(r)
@@ -297,7 +298,8 @@ func runWithProvider(backend vcs.Backend, p provider.Provider, id string, th the
 	}
 
 	// Fetch existing inline comments
-	if comments, err := p.ListComments(id); err == nil {
+	comments, _ := p.ListComments(id)
+	if len(comments) > 0 {
 		imported := provider.ImportComments(comments)
 		for path, lineComments := range imported {
 			fr := session.GetOrCreateFileReview(path, model.FileModified)
@@ -320,8 +322,17 @@ func runWithProvider(backend vcs.Backend, p provider.Provider, id string, th the
 	}
 
 	// Fetch conversation
-	if convComments, err := p.ListConversation(id); err == nil {
+	convComments, _ := p.ListConversation(id)
+	if len(convComments) > 0 {
 		session.Conversation = provider.ImportConversation(convComments)
+	}
+
+	// Seed the provider's refresh baseline so the first :refresh only
+	// reports items that appeared after startup.
+	if seeder, ok := p.(interface {
+		Seed(*provider.ReviewRequest, []provider.Comment, []provider.Review, []provider.ConversationComment)
+	}); ok {
+		seeder.Seed(rr, comments, reviews, convComments)
 	}
 
 	app := ui.NewApp(backend, files, session, th, hl, store)
