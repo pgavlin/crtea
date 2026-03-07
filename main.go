@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -100,28 +102,54 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	var app ui.App
 	if revisions := cmd.String("revisions"); revisions != "" {
 		info := backend.Info()
-		files, err := backend.GetRevisionDiff(revisions)
+
+		// Get commits in the range
+		commits, err := backend.GetCommitsInRange(revisions)
 		if err != nil {
-			return fmt.Errorf("getting diff: %w", err)
+			return fmt.Errorf("listing commits: %w", err)
 		}
-		if len(files) == 0 {
+
+		// Determine if working tree should be included: range endpoint is HEAD
+		includesWorkTree := rangeIncludesHead(revisions)
+
+		// Fetch per-commit diffs
+		commitDiffs := make(map[string][]model.DiffFile)
+		enabledCommits := make(map[string]bool)
+		for _, c := range commits {
+			files, err := backend.GetRevisionDiff(c.ID + "^.." + c.ID)
+			if err == nil {
+				highlighter.HighlightFiles(files)
+				commitDiffs[c.ID] = files
+			}
+			enabledCommits[c.ID] = true
+		}
+
+		if includesWorkTree {
+			files, err := backend.GetWorkingTreeDiff()
+			if err == nil && len(files) > 0 {
+				highlighter.HighlightFiles(files)
+				commitDiffs["worktree"] = files
+				enabledCommits["worktree"] = true
+			} else {
+				// No working tree changes; don't show the entry
+				includesWorkTree = false
+			}
+		}
+
+		if len(commitDiffs) == 0 {
 			fmt.Println("No changes to review.")
 			return nil
 		}
-		highlighter.HighlightFiles(files)
 
 		diffSource := model.DiffCommitRange
 		session, _ := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
 		if session == nil {
 			session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 		}
-		for _, f := range files {
-			session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
-		}
 		if session.Description == "" {
-			session.Description = revisions
+			session.Description = buildRevisionDescription(commits, includesWorkTree, revisions)
 		}
-		app = ui.NewApp(backend, files, session, th, highlighter, store)
+		app = ui.NewAppWithCommits(backend, commits, commitDiffs, enabledCommits, includesWorkTree, session, th, highlighter, store)
 	} else {
 		app = ui.NewPickerApp(backend, th, highlighter, store)
 	}
@@ -134,6 +162,59 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	return nil
+}
+
+// buildRevisionDescription creates a description from commit messages in a revision range.
+func buildRevisionDescription(commits []vcs.CommitInfo, includesWorkTree bool, revisions string) string {
+	if len(commits) == 0 && !includesWorkTree {
+		return revisions
+	}
+	var sections []string
+	if includesWorkTree {
+		sections = append(sections, "* Working tree changes")
+	}
+	// Commits are newest-first; list oldest-first for chronological order
+	for i := len(commits) - 1; i >= 0; i-- {
+		c := commits[i]
+		entry := "* " + c.Summary
+		if c.Body != "" {
+			for _, line := range strings.Split(c.Body, "\n") {
+				entry += "\n  " + line
+			}
+		}
+		sections = append(sections, entry)
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+// rangeIncludesHead checks whether a revision range's endpoint resolves to HEAD.
+// This determines whether working tree changes should be included.
+func rangeIncludesHead(revSpec string) bool {
+	// No ".." means git diff diffs against working tree
+	if !strings.Contains(revSpec, "..") {
+		return true
+	}
+	// Extract the right side of "A..B" or "A...B"
+	endpoint := revSpec[strings.Index(revSpec, "..")+2:]
+	if strings.HasPrefix(endpoint, ".") {
+		endpoint = endpoint[1:]
+	}
+	if endpoint == "" || strings.EqualFold(endpoint, "HEAD") {
+		return true
+	}
+	// Resolve the endpoint and compare to HEAD
+	cmd := exec.Command("git", "rev-parse", endpoint)
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	resolved := strings.TrimSpace(string(out))
+	cmd2 := exec.Command("git", "rev-parse", "HEAD")
+	out2, err := cmd2.Output()
+	if err != nil {
+		return false
+	}
+	return resolved == strings.TrimSpace(string(out2))
 }
 
 func selectTheme(name string) (theme.Theme, string) {

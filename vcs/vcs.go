@@ -40,4 +40,6 @@ type Backend interface {
 	FetchContextLines(filePath string, status model.FileStatus, startLine, endLine int) ([]model.DiffLine, error)
 	// GetRecentCommits returns recent commits starting from offset, up to limit.
 	GetRecentCommits(offset, limit int) ([]CommitInfo, error)
+	// GetCommitsInRange returns commits in a revision range (e.g. "main~5..HEAD"), newest-first.
+	GetCommitsInRange(revSpec string) ([]CommitInfo, error)
 }

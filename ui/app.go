@@ -174,6 +174,38 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 	return app
 }
 
+// NewAppWithCommits creates a new App with pre-populated commit list data.
+// commits should be in newest-first order. commitDiffs maps commit IDs (and "worktree")
+// to their individual diffs. enabledCommits indicates which are initially enabled.
+func NewAppWithCommits(backend vcs.Backend, commits []vcs.CommitInfo, commitDiffs map[string][]model.DiffFile, enabledCommits map[string]bool, includesWorkTree bool, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
+	app := App{
+		vcs:              backend,
+		vcsInfo:          backend.Info(),
+		session:          session,
+		highlighter:      hl,
+		inputMode:        modeNormal,
+		focusedPanel:     panelDiff,
+		showFileList:     true,
+		expandedGaps:     make(map[gapID][]model.DiffLine),
+		collapsedDirs:    make(map[string]bool),
+		store:            store,
+		theme:            th,
+		reviewCommits:    commits,
+		commitDiffs:      commitDiffs,
+		enabledCommits:   enabledCommits,
+		includesWorkTree: includesWorkTree,
+	}
+	app.diffFiles = app.mergeEnabledDiffs()
+	if session != nil {
+		for _, f := range app.diffFiles {
+			session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
+		}
+	}
+	app.rebuildFileTree()
+	app.rebuildAnnotations()
+	return app
+}
+
 // NewPickerApp creates an App that starts in the commit picker phase.
 func NewPickerApp(backend vcs.Backend, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
 	commits, _ := backend.GetRecentCommits(0, 30)

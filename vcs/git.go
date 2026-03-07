@@ -123,7 +123,24 @@ func (g *GitBackend) GetRecentCommits(offset, limit int) ([]CommitInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseCommitLog(out), nil
+}
 
+func (g *GitBackend) GetCommitsInRange(revSpec string) ([]CommitInfo, error) {
+	// If no ".." is present, treat as revSpec..HEAD (matching git diff behavior)
+	logSpec := revSpec
+	if !strings.Contains(revSpec, "..") {
+		logSpec = revSpec + "..HEAD"
+	}
+	format := "%H%n%h%n%s%n%b%x00%an%n%aI%n%D"
+	out, err := gitOutput(g.info.RootPath, "log", logSpec, fmt.Sprintf("--format=%s", format))
+	if err != nil {
+		return nil, err
+	}
+	return parseCommitLog(out), nil
+}
+
+func parseCommitLog(out string) []CommitInfo {
 	var commits []CommitInfo
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	for i := 0; i < len(lines); {
@@ -139,14 +156,11 @@ func (g *GitBackend) GetRecentCommits(offset, limit int) ([]CommitInfo, error) {
 		var bodyLines []string
 		for i < len(lines) {
 			if idx := strings.IndexByte(lines[i], 0); idx >= 0 {
-				// This line contains the NUL; text before it is the last body line
 				if before := lines[i][:idx]; before != "" {
 					bodyLines = append(bodyLines, before)
 				}
-				// Text after NUL is the author field
 				after := lines[i][idx+1:]
 				i++
-				// Parse remaining fixed fields: aI, D
 				if i+1 >= len(lines) {
 					break
 				}
@@ -177,7 +191,7 @@ func (g *GitBackend) GetRecentCommits(offset, limit int) ([]CommitInfo, error) {
 			i++
 		}
 	}
-	return commits, nil
+	return commits
 }
 
 func gitOutput(dir string, args ...string) (string, error) {
