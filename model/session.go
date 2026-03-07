@@ -44,6 +44,38 @@ func (fr *FileReview) HasComments() bool {
 	return false
 }
 
+// ApprovalStatus represents the overall review approval status.
+type ApprovalStatus int
+
+const (
+	ApprovalNeutral ApprovalStatus = iota
+	ApprovalApprove
+	ApprovalRequestChanges
+)
+
+// String returns the display name of the approval status.
+func (s ApprovalStatus) String() string {
+	switch s {
+	case ApprovalApprove:
+		return "Approve"
+	case ApprovalRequestChanges:
+		return "Request Changes"
+	default:
+		return "Neutral"
+	}
+}
+
+// Next returns the next approval status, cycling through all statuses.
+func (s ApprovalStatus) Next() ApprovalStatus {
+	return (s + 1) % 3
+}
+
+// OverallReview captures high-level review thoughts with an approval status.
+type OverallReview struct {
+	Body   string         `json:"body"`
+	Status ApprovalStatus `json:"status"`
+}
+
 // DiffSource describes what is being diffed.
 type DiffSource int
 
@@ -64,7 +96,8 @@ type ReviewSession struct {
 	Description string                 `json:"description,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`
-	Files       map[string]*FileReview `json:"files"`
+	Files         map[string]*FileReview `json:"files"`
+	OverallReview *OverallReview          `json:"overall_review,omitempty"`
 }
 
 // NewSession creates a new review session.

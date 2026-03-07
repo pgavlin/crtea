@@ -67,6 +67,42 @@ func TestGenerateMarkdownRangeComment(t *testing.T) {
 	}
 }
 
+func TestGenerateMarkdownOverallReview(t *testing.T) {
+	session := model.NewSession("/repo", "main", "abc", model.DiffWorkingTree)
+	session.OverallReview = &model.OverallReview{
+		Body:   "Great work overall",
+		Status: model.ApprovalApprove,
+	}
+
+	got := GenerateMarkdown(session)
+
+	if !strings.Contains(got, "## Overall Review") {
+		t.Error("missing overall review header")
+	}
+	if !strings.Contains(got, "**Status:** Approve") {
+		t.Error("missing approval status")
+	}
+	if !strings.Contains(got, "Great work overall") {
+		t.Error("missing review body")
+	}
+}
+
+func TestGenerateMarkdownOverallReviewOnly(t *testing.T) {
+	session := model.NewSession("/repo", "main", "abc", model.DiffWorkingTree)
+	session.OverallReview = &model.OverallReview{
+		Body:   "Needs work",
+		Status: model.ApprovalRequestChanges,
+	}
+
+	got := GenerateMarkdown(session)
+	if got == "" {
+		t.Error("expected non-empty markdown for session with overall review but no comments")
+	}
+	if !strings.Contains(got, "Request Changes") {
+		t.Error("missing request changes status")
+	}
+}
+
 func TestGenerateMarkdownSortedFiles(t *testing.T) {
 	session := model.NewSession("/repo", "main", "abc", model.DiffWorkingTree)
 

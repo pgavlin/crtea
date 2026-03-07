@@ -32,6 +32,8 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a.handleConfirmKey(msg)
 	case modeVisualSelect:
 		return a.handleVisualKey(msg)
+	case modeReview:
+		return a.handleReviewKey(msg)
 	default:
 		return a.handleNormalKey(msg)
 	}
@@ -193,6 +195,10 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.searchNext(true)
 	case key.Text == "N":
 		a.searchNext(false)
+
+	// Overall review
+	case key.Text == "R":
+		a.enterOverallReview()
 
 	// Help
 	case key.Text == "?":
@@ -877,6 +883,63 @@ func (a *App) enterCommentFromVisual() {
 	a.inputMode = modeComment
 }
 
+// Overall review
+
+func (a *App) enterOverallReview() {
+	a.reviewBuffer = ""
+	a.reviewCursor = 0
+	a.reviewStatus = model.ApprovalNeutral
+	if a.session.OverallReview != nil {
+		a.reviewBuffer = a.session.OverallReview.Body
+		a.reviewCursor = len(a.reviewBuffer)
+		a.reviewStatus = a.session.OverallReview.Status
+	}
+	a.inputMode = modeReview
+}
+
+func (a App) handleReviewKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.Key()
+	switch {
+	case key.Code == tea.KeyEscape:
+		a.inputMode = modeNormal
+		a.reviewBuffer = ""
+	case key.Code == tea.KeyEnter && key.Mod == tea.ModShift:
+		a.reviewBuffer = a.reviewBuffer[:a.reviewCursor] + "\n" + a.reviewBuffer[a.reviewCursor:]
+		a.reviewCursor++
+	case key.Code == tea.KeyEnter:
+		a.saveOverallReview()
+		a.inputMode = modeNormal
+	case key.Code == tea.KeyTab:
+		a.reviewStatus = a.reviewStatus.Next()
+	case key.Code == tea.KeyBackspace:
+		if a.reviewCursor > 0 {
+			a.reviewBuffer = a.reviewBuffer[:a.reviewCursor-1] + a.reviewBuffer[a.reviewCursor:]
+			a.reviewCursor--
+		}
+	default:
+		if key.Text != "" {
+			a.reviewBuffer = a.reviewBuffer[:a.reviewCursor] + key.Text + a.reviewBuffer[a.reviewCursor:]
+			a.reviewCursor += len(key.Text)
+		}
+	}
+	return &a, nil
+}
+
+func (a *App) saveOverallReview() {
+	body := strings.TrimSpace(a.reviewBuffer)
+	if body == "" && a.reviewStatus == model.ApprovalNeutral {
+		a.session.OverallReview = nil
+	} else {
+		a.session.OverallReview = &model.OverallReview{
+			Body:   body,
+			Status: a.reviewStatus,
+		}
+	}
+	a.dirty = true
+	a.reviewBuffer = ""
+	a.setMessage("Overall review saved", messageInfo)
+}
+
 // Search
 
 func (a *App) searchNext(forward bool) {
@@ -992,6 +1055,9 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		a.rebuildAnnotations()
 		a.setMessage(fmt.Sprintf("Reloaded %d files", len(files)), messageInfo)
 		return nil
+	case "review":
+		a.enterOverallReview()
+		return nil
 	case "clip", "export":
 		return a.exportComments()
 	case "clear":
@@ -999,6 +1065,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 			fr.FileComments = nil
 			fr.LineComments = make(map[int][]model.Comment)
 		}
+		a.session.OverallReview = nil
 		a.dirty = true
 		a.rebuildAnnotations()
 		a.setMessage("All comments cleared", messageInfo)
@@ -1024,7 +1091,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 
 func (a *App) exportComments() tea.Cmd {
 	total := a.session.TotalComments()
-	if total == 0 {
+	if total == 0 && a.session.OverallReview == nil {
 		a.setMessage("No comments to export", messageWarning)
 		return nil
 	}

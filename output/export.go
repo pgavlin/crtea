@@ -11,12 +11,22 @@ import (
 
 // GenerateMarkdown produces structured markdown from the review session's comments.
 func GenerateMarkdown(session *model.ReviewSession) string {
-	if session.TotalComments() == 0 {
+	if session.TotalComments() == 0 && session.OverallReview == nil {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("# Code Review Comments\n\n")
+
+	// Overall review section
+	if session.OverallReview != nil {
+		b.WriteString("## Overall Review\n\n")
+		b.WriteString(fmt.Sprintf("**Status:** %s\n\n", session.OverallReview.Status.String()))
+		if session.OverallReview.Body != "" {
+			b.WriteString(session.OverallReview.Body)
+			b.WriteString("\n\n---\n\n")
+		}
+	}
 
 	// Sort file paths for deterministic output
 	var paths []string

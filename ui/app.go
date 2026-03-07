@@ -24,6 +24,7 @@ const (
 	modeHelp
 	modeConfirm
 	modeVisualSelect
+	modeReview
 )
 
 type focusedPanel int
@@ -121,6 +122,11 @@ type App struct {
 	visualAnchor     int // line number where visual selection started
 	visualAnchorSide model.LineSide
 	commentLineRange *model.LineRange
+
+	// Overall review editor
+	reviewBuffer string
+	reviewCursor int
+	reviewStatus model.ApprovalStatus
 
 	// Messages
 	message    *statusMessage
@@ -261,7 +267,29 @@ func (a App) View() tea.View {
 		contentHeight = 1
 	}
 
-	if a.inputMode == modeHelp {
+	// Review editor pane (steals height from content area)
+	if a.inputMode == modeReview {
+		reviewHeight := 8
+		if reviewHeight > contentHeight-2 {
+			reviewHeight = contentHeight - 2
+		}
+		if reviewHeight < 3 {
+			reviewHeight = 3
+		}
+		contentHeight -= reviewHeight + 1 // +1 for separator newline
+		// Render content first, then review pane below
+		if a.showFileList {
+			fileListWidth := a.fileListWidth()
+			diffWidth := a.width - fileListWidth - 1
+			fileList := a.renderFileList(fileListWidth, contentHeight)
+			diffView := a.renderDiffView(diffWidth, contentHeight)
+			b.WriteString(joinHorizontal(fileList, diffView, contentHeight))
+		} else {
+			b.WriteString(a.renderDiffView(a.width, contentHeight))
+		}
+		b.WriteString("\n")
+		b.WriteString(a.renderReviewEditor(a.width, reviewHeight))
+	} else if a.inputMode == modeHelp {
 		b.WriteString(a.renderHelp(contentHeight))
 	} else if a.showFileList {
 		fileListWidth := a.fileListWidth()

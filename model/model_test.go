@@ -176,6 +176,38 @@ func TestTotalComments(t *testing.T) {
 	}
 }
 
+func TestApprovalStatusString(t *testing.T) {
+	tests := []struct {
+		status ApprovalStatus
+		want   string
+	}{
+		{ApprovalNeutral, "Neutral"},
+		{ApprovalApprove, "Approve"},
+		{ApprovalRequestChanges, "Request Changes"},
+	}
+	for _, tt := range tests {
+		if got := tt.status.String(); got != tt.want {
+			t.Errorf("ApprovalStatus(%d).String() = %q, want %q", tt.status, got, tt.want)
+		}
+	}
+}
+
+func TestApprovalStatusNext(t *testing.T) {
+	tests := []struct {
+		status ApprovalStatus
+		want   ApprovalStatus
+	}{
+		{ApprovalNeutral, ApprovalApprove},
+		{ApprovalApprove, ApprovalRequestChanges},
+		{ApprovalRequestChanges, ApprovalNeutral}, // wraps
+	}
+	for _, tt := range tests {
+		if got := tt.status.Next(); got != tt.want {
+			t.Errorf("ApprovalStatus(%d).Next() = %d, want %d", tt.status, got, tt.want)
+		}
+	}
+}
+
 func TestNewRangeComment(t *testing.T) {
 	lr := LineRange{Start: 10, End: 20}
 	c := NewRangeComment("range", CommentNote, SideNew, lr)

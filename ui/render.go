@@ -208,6 +208,8 @@ func (a *App) renderFooter() string {
 		content = "/" + a.searchBuffer + "█"
 	case modeComment:
 		content = " Enter: save | Esc: cancel | Tab: cycle type | Shift-Enter: newline"
+	case modeReview:
+		content = " Enter: save | Esc: cancel | Tab: cycle status | Shift-Enter: newline"
 	case modeVisualSelect:
 		modeStyle := lipgloss.NewStyle().
 			Background(th.ModeBg).
@@ -884,6 +886,86 @@ func (a *App) renderCommentEditor(width int) []string {
 	return lines
 }
 
+func (a *App) renderReviewEditor(width, height int) string {
+	th := a.theme
+
+	var statusColor color.Color
+	switch a.reviewStatus {
+	case model.ApprovalApprove:
+		statusColor = th.Reviewed
+	case model.ApprovalRequestChanges:
+		statusColor = th.CommentIssue
+	default:
+		statusColor = th.FgDim
+	}
+
+	borderStyle := lipgloss.NewStyle().Foreground(statusColor)
+
+	boxWidth := width
+	innerWidth := boxWidth - 4 // "│ " + content + " │"
+	if innerWidth < 10 {
+		innerWidth = 10
+	}
+
+	// Status badge
+	statusBadge := lipgloss.NewStyle().
+		Background(statusColor).
+		Foreground(th.ModeFg).
+		Bold(true).
+		Padding(0, 1).
+		Render(a.reviewStatus.String())
+
+	titleStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true)
+	title := titleStyle.Render(" Overall Review ")
+
+	// Top border
+	badgeWidth := lipgloss.Width(statusBadge)
+	titleWidth := lipgloss.Width(title)
+	restWidth := boxWidth - 2 - badgeWidth - titleWidth
+	if restWidth < 1 {
+		restWidth = 1
+	}
+
+	var lines []string
+	lines = append(lines, borderStyle.Render("╭")+statusBadge+title+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
+
+	// Content lines with cursor
+	buf := a.reviewBuffer
+	cursor := a.reviewCursor
+	before := buf[:cursor]
+	after := buf[cursor:]
+	display := before + "█" + after
+
+	wrapWidth := innerWidth
+	if wrapWidth < 10 {
+		wrapWidth = 0
+	}
+	wrapped := wrapComment(display, wrapWidth)
+	if len(wrapped) == 0 {
+		wrapped = []string{"█"}
+	}
+
+	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+	maxContentLines := height - 2 // top + bottom border
+	for i, wl := range wrapped {
+		if i >= maxContentLines {
+			break
+		}
+		inner := truncateOrPad(wl, innerWidth)
+		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(inner)+" "+borderStyle.Render("│"))
+	}
+
+	// Pad to fill remaining height
+	for len(lines) < height-1 {
+		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(strings.Repeat(" ", innerWidth))+" "+borderStyle.Render("│"))
+	}
+
+	// Bottom border
+	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", boxWidth-2)+"╯"))
+
+	return strings.Join(lines, "\n")
+}
+
 func (a *App) commentTypeColor(ct model.CommentType) color.Color {
 	th := a.theme
 	switch ct {
@@ -925,6 +1007,7 @@ func (a *App) renderHelp(height int) string {
 		"  i                 Edit comment at cursor",
 		"  dd                Delete comment at cursor",
 		"  v                 Visual select lines",
+		"  R                 Overall review",
 		"  Tab (in comment)  Cycle comment type",
 		"",
 		"File List",
@@ -944,6 +1027,7 @@ func (a *App) renderHelp(height int) string {
 		"  :x / :wq          Save and quit",
 		"  :e / :reload      Reload diff",
 		"  :clip / :export   Export comments to clipboard",
+		"  :review           Open overall review",
 		"  :clear            Clear all comments",
 		"",
 		"Search",
