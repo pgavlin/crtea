@@ -64,10 +64,11 @@ type App struct {
 	height int
 
 	// Diff view state
-	annotations    []AnnotatedLine
-	cursorLine     int
-	scrollOffset   int
-	scrollX        int
+	annotations  []AnnotatedLine
+	cursorLine   int
+	scrollOffset int
+	scrollX      int
+	expandedGaps map[GapID][]model.DiffLine
 
 	// File list state
 	fileListCursor int
@@ -113,6 +114,7 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 		inputMode:    ModeNormal,
 		focusedPanel: PanelDiff,
 		showFileList: true,
+		expandedGaps: make(map[GapID][]model.DiffLine),
 		theme:        th,
 	}
 	app.rebuildAnnotations()
@@ -120,7 +122,7 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 }
 
 func (a *App) rebuildAnnotations() {
-	a.annotations = BuildAnnotations(a.diffFiles, a.session)
+	a.annotations = BuildAnnotations(a.diffFiles, a.session, a.expandedGaps)
 }
 
 // Init implements tea.Model.

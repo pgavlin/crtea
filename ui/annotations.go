@@ -12,6 +12,7 @@ const (
 	AnnFileComment
 	AnnLineComment
 	AnnExpander
+	AnnExpandedContext
 	AnnBinaryOrEmpty
 	AnnSpacing
 )
@@ -26,6 +27,7 @@ type AnnotatedLine struct {
 	NewLineNo  int
 	CommentIdx int
 	Side       model.LineSide
+	GapID      GapID // set for AnnExpander and AnnExpandedContext
 }
 
 // GapID identifies a gap between hunks for context expansion.
@@ -34,8 +36,8 @@ type GapID struct {
 	HunkIdx int // gap is before this hunk
 }
 
-// BuildAnnotations constructs the list of annotated lines from diff files and session.
-func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession) []AnnotatedLine {
+// BuildAnnotations constructs the list of annotated lines from diff files, session, and expanded gaps.
+func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession, expandedGaps map[GapID][]model.DiffLine) []AnnotatedLine {
 	var annotations []AnnotatedLine
 
 	for fi, file := range files {
@@ -68,13 +70,31 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession) []An
 		}
 
 		for hi, hunk := range file.Hunks {
-			// Expander between hunks (gap)
+			// Gap between hunks
 			if hi > 0 {
-				annotations = append(annotations, AnnotatedLine{
-					Type:    AnnExpander,
-					FileIdx: fi,
-					HunkIdx: hi,
-				})
+				gid := GapID{FileIdx: fi, HunkIdx: hi}
+				if expanded, ok := expandedGaps[gid]; ok {
+					// Show expanded context lines
+					for li, line := range expanded {
+						annotations = append(annotations, AnnotatedLine{
+							Type:      AnnExpandedContext,
+							FileIdx:   fi,
+							HunkIdx:   hi,
+							LineIdx:   li,
+							OldLineNo: line.OldLineNo,
+							NewLineNo: line.NewLineNo,
+							GapID:     gid,
+						})
+					}
+				} else {
+					// Show collapsed expander
+					annotations = append(annotations, AnnotatedLine{
+						Type:    AnnExpander,
+						FileIdx: fi,
+						HunkIdx: hi,
+						GapID:   gid,
+					})
+				}
 			}
 
 			// Hunk header
@@ -109,7 +129,10 @@ func BuildAnnotations(files []model.DiffFile, session *model.ReviewSession) []An
 								annotations = append(annotations, AnnotatedLine{
 									Type:       AnnLineComment,
 									FileIdx:    fi,
+									HunkIdx:    hi,
 									LineIdx:    li,
+									OldLineNo:  line.OldLineNo,
+									NewLineNo:  line.NewLineNo,
 									CommentIdx: ci,
 									Side:       side,
 								})

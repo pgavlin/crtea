@@ -120,11 +120,13 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	// Enter in file list = jump to file
+	// Enter: jump to file (file list) or toggle expand (diff)
 	case key.Code == tea.KeyEnter:
 		if a.focusedPanel == PanelFileList {
 			a.jumpToFile(a.fileListCursor)
 			a.focusedPanel = PanelDiff
+		} else if a.focusedPanel == PanelDiff {
+			a.toggleExpandAtCursor()
 		}
 
 	// Review
@@ -455,6 +457,60 @@ func (a *App) prevHunk() {
 	}
 }
 
+// Context expansion
+
+func (a *App) toggleExpandAtCursor() {
+	if a.cursorLine < 0 || a.cursorLine >= len(a.annotations) {
+		return
+	}
+	ann := a.annotations[a.cursorLine]
+
+	switch ann.Type {
+	case AnnExpander:
+		a.expandGap(ann.GapID)
+	case AnnExpandedContext:
+		a.collapseGap(ann.GapID)
+	}
+}
+
+func (a *App) expandGap(gid GapID) {
+	if _, ok := a.expandedGaps[gid]; ok {
+		return // already expanded
+	}
+
+	file := a.diffFiles[gid.FileIdx]
+	if gid.HunkIdx <= 0 || gid.HunkIdx >= len(file.Hunks) {
+		return
+	}
+
+	prevHunk := file.Hunks[gid.HunkIdx-1]
+	thisHunk := file.Hunks[gid.HunkIdx]
+
+	// Calculate the line range between the two hunks
+	startLine := prevHunk.NewStart + prevHunk.NewCount
+	endLine := thisHunk.NewStart - 1
+	if startLine > endLine {
+		return
+	}
+
+	lines, err := a.vcs.FetchContextLines(file.DisplayPath(), file.Status, startLine, endLine)
+	if err != nil {
+		a.setMessage("Failed to expand context: "+err.Error(), MessageError)
+		return
+	}
+
+	a.expandedGaps[gid] = lines
+	a.rebuildAnnotations()
+}
+
+func (a *App) collapseGap(gid GapID) {
+	if _, ok := a.expandedGaps[gid]; !ok {
+		return
+	}
+	delete(a.expandedGaps, gid)
+	a.rebuildAnnotations()
+}
+
 // Review actions
 
 func (a *App) toggleReviewed() {
@@ -564,17 +620,13 @@ func (a *App) editCommentAtCursor() {
 }
 
 func (a *App) getCommentLineNo(ann AnnotatedLine) int {
-	// Walk backwards to find the diff line this comment is attached to
-	for i := a.cursorLine - 1; i >= 0; i-- {
-		prev := a.annotations[i]
-		if prev.Type == AnnDiffLine {
-			if prev.NewLineNo > 0 {
-				return prev.NewLineNo
-			}
-			return prev.OldLineNo
-		}
+	if ann.Side == model.SideOld && ann.OldLineNo > 0 {
+		return ann.OldLineNo
 	}
-	return 0
+	if ann.NewLineNo > 0 {
+		return ann.NewLineNo
+	}
+	return ann.OldLineNo
 }
 
 func (a *App) saveComment() {

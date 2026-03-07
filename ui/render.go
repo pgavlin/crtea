@@ -279,7 +279,10 @@ func (a *App) renderAnnotatedLine(ann AnnotatedLine, width int, isCursor, isVisu
 		if isCursor {
 			style = style.Background(th.BgHighlight)
 		}
-		return style.Render(truncateOrPad(" ⋯ expand context", width))
+		return style.Render(truncateOrPad(" ⋯ expand context (Enter to expand)", width))
+
+	case AnnExpandedContext:
+		return a.renderExpandedContextLine(ann, width, isCursor)
 
 	case AnnBinaryOrEmpty:
 		style := lipgloss.NewStyle().Foreground(th.FgDim).Italic(true)
@@ -410,6 +413,38 @@ func (a *App) renderDiffLine(ann AnnotatedLine, width int, isCursor, isVisualSel
 	return gutter + markerStyle.Render(marker) + renderedContent
 }
 
+func (a *App) renderExpandedContextLine(ann AnnotatedLine, width int, isCursor bool) string {
+	th := a.theme
+
+	expanded, ok := a.expandedGaps[ann.GapID]
+	if !ok || ann.LineIdx < 0 || ann.LineIdx >= len(expanded) {
+		return strings.Repeat(" ", width)
+	}
+	line := expanded[ann.LineIdx]
+
+	oldNo := fmt.Sprintf("%4d", line.OldLineNo)
+	newNo := fmt.Sprintf("%4d", line.NewLineNo)
+
+	gutterStyle := lipgloss.NewStyle().Foreground(th.FgDim)
+	gutter := gutterStyle.Render(oldNo + " " + newNo)
+
+	contentStyle := lipgloss.NewStyle().Foreground(th.ExpandedCtxFg)
+	if isCursor {
+		contentStyle = contentStyle.Background(th.BgHighlight)
+	}
+
+	content := line.Content
+	if a.scrollX > 0 && len(content) > a.scrollX {
+		content = content[a.scrollX:]
+	} else if a.scrollX > 0 {
+		content = ""
+	}
+
+	gutterWidth := 10
+	contentWidth := width - gutterWidth - 1
+	return gutter + contentStyle.Render(" "+truncateOrPad(content, contentWidth))
+}
+
 func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLevel bool) string {
 	th := a.theme
 
@@ -429,8 +464,10 @@ func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLe
 			comment = &fr.FileComments[ann.CommentIdx]
 		}
 	} else {
-		// Find the line number by looking at surrounding annotations
-		lineNo := a.getCommentLineNoByAnnotation(ann)
+		lineNo := ann.NewLineNo
+		if ann.Side == model.SideOld {
+			lineNo = ann.OldLineNo
+		}
 		if comments, ok := fr.LineComments[lineNo]; ok && ann.CommentIdx < len(comments) {
 			comment = &comments[ann.CommentIdx]
 		}
@@ -470,24 +507,6 @@ func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLe
 	return commentStyle.Render(truncateOrPad(line, width))
 }
 
-func (a *App) getCommentLineNoByAnnotation(ann AnnotatedLine) int {
-	// For line comments, find the line they're attached to by checking previous annotations
-	if ann.FileIdx >= 0 && ann.FileIdx < len(a.diffFiles) {
-		file := a.diffFiles[ann.FileIdx]
-		if ann.LineIdx >= 0 {
-			for _, hunk := range file.Hunks {
-				if ann.LineIdx < len(hunk.Lines) {
-					line := hunk.Lines[ann.LineIdx]
-					if line.NewLineNo > 0 {
-						return line.NewLineNo
-					}
-					return line.OldLineNo
-				}
-			}
-		}
-	}
-	return 0
-}
 
 func (a *App) commentTypeColor(ct model.CommentType) color.Color {
 	th := a.theme

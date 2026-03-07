@@ -44,10 +44,10 @@ func (g *GitBackend) Info() VcsInfo {
 
 func (g *GitBackend) GetWorkingTreeDiff() ([]model.DiffFile, error) {
 	// Get both staged and unstaged changes
-	out, err := gitOutput(g.info.RootPath, "diff", "HEAD", "--unified=3", "--no-color")
+	out, err := gitOutput(g.info.RootPath, "diff", "HEAD", "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/")
 	if err != nil {
 		// If HEAD doesn't exist (new repo), diff against empty tree
-		out, err = gitOutput(g.info.RootPath, "diff", "--cached", "--unified=3", "--no-color")
+		out, err = gitOutput(g.info.RootPath, "diff", "--cached", "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/")
 		if err != nil {
 			return nil, err
 		}
@@ -61,9 +61,9 @@ func (g *GitBackend) GetCommitRangeDiff(ids []string) ([]model.DiffFile, error) 
 	}
 	var args []string
 	if len(ids) == 1 {
-		args = []string{"diff", ids[0] + "^", ids[0], "--unified=3", "--no-color"}
+		args = []string{"diff", ids[0] + "^", ids[0], "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/"}
 	} else {
-		args = []string{"diff", ids[0] + "^", ids[len(ids)-1], "--unified=3", "--no-color"}
+		args = []string{"diff", ids[0] + "^", ids[len(ids)-1], "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/"}
 	}
 	out, err := gitOutput(g.info.RootPath, args...)
 	if err != nil {
