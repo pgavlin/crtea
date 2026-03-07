@@ -47,8 +47,8 @@ type StyledSpan struct {
 type DiffLine struct {
 	Origin    LineOrigin
 	Content   string
-	OldLineNo int // 0 means not applicable
-	NewLineNo int // 0 means not applicable
+	OldLineNo int          // 0 means not applicable
+	NewLineNo int          // 0 means not applicable
 	Spans     []StyledSpan // syntax-highlighted spans, nil if not highlighted
 }
 

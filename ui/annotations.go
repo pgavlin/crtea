@@ -23,17 +23,17 @@ const (
 
 // annotatedLine describes what a single screen line maps to in the diff model.
 type annotatedLine struct {
-	Type        annotationType
-	FileIdx     int
-	HunkIdx     int
-	LineIdx     int
-	OldLineNo   int
-	NewLineNo   int
-	CommentIdx  int
+	Type         annotationType
+	FileIdx      int
+	HunkIdx      int
+	LineIdx      int
+	OldLineNo    int
+	NewLineNo    int
+	CommentIdx   int
 	CommentLine  int // which display line within a comment (0 = header, 1+ = content lines)
 	CommentLines int // total display lines for this comment
-	Side        model.LineSide
-	gapID       gapID // set for annExpander and annExpandedContext
+	Side         model.LineSide
+	gapID        gapID // set for annExpander and annExpandedContext
 }
 
 // gapID identifies a gap between hunks for context expansion.

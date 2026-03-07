@@ -4,11 +4,11 @@ import "time"
 
 // FileReview tracks review status and comments for a single file.
 type FileReview struct {
-	Path         string               `json:"path"`
-	Reviewed     bool                 `json:"reviewed"`
-	Status       FileStatus           `json:"status"`
-	FileComments []Comment            `json:"file_comments"`
-	LineComments map[int][]Comment    `json:"line_comments"` // line number -> comments
+	Path         string            `json:"path"`
+	Reviewed     bool              `json:"reviewed"`
+	Status       FileStatus        `json:"status"`
+	FileComments []Comment         `json:"file_comments"`
+	LineComments map[int][]Comment `json:"line_comments"` // line number -> comments
 }
 
 // NewFileReview creates a new FileReview.
@@ -54,16 +54,16 @@ const (
 
 // ReviewSession persists the review state.
 type ReviewSession struct {
-	ID          string                  `json:"id"`
-	Version     string                  `json:"version"`
-	RepoPath    string                  `json:"repo_path"`
-	BranchName  string                  `json:"branch_name,omitempty"`
-	BaseCommit  string                  `json:"base_commit"`
-	DiffSource  DiffSource              `json:"diff_source"`
-	CommitRange []string                `json:"commit_range,omitempty"`
-	CreatedAt   time.Time               `json:"created_at"`
-	UpdatedAt   time.Time               `json:"updated_at"`
-	Files       map[string]*FileReview  `json:"files"`
+	ID          string                 `json:"id"`
+	Version     string                 `json:"version"`
+	RepoPath    string                 `json:"repo_path"`
+	BranchName  string                 `json:"branch_name,omitempty"`
+	BaseCommit  string                 `json:"base_commit"`
+	DiffSource  DiffSource             `json:"diff_source"`
+	CommitRange []string               `json:"commit_range,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+	Files       map[string]*FileReview `json:"files"`
 }
 
 // NewSession creates a new review session.
