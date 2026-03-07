@@ -59,7 +59,7 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.setMessage("Unsaved changes. Press q again to quit, or :w to save.", MessageWarning)
 			return &a, nil
 		}
-		return &a, tea.Quit
+		return &a, func() tea.Msg { return DoneMsg{} }
 
 	case key.Code == tea.KeyEscape:
 		a.pendingCount = ""
@@ -931,9 +931,9 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 			a.setMessage("Unsaved changes. Use :q! to force quit, or :w to save.", MessageWarning)
 			return nil
 		}
-		return tea.Quit
+		return func() tea.Msg { return DoneMsg{} }
 	case "q!", "quit!":
-		return tea.Quit
+		return func() tea.Msg { return DoneMsg{} }
 	case "w", "write":
 		if _, err := a.store.Save(a.session); err != nil {
 			a.setMessage("Save failed: "+err.Error(), MessageError)
@@ -945,7 +945,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	case "x", "wq":
 		a.store.Save(a.session)
 		a.dirty = false
-		return tea.Quit
+		return func() tea.Msg { return DoneMsg{} }
 	case "e", "reload":
 		files, err := a.vcs.GetWorkingTreeDiff()
 		if err != nil {
@@ -998,7 +998,7 @@ func (a *App) exportComments() tea.Cmd {
 	}
 	md := output.GenerateMarkdown(a.session)
 	a.setMessage(fmt.Sprintf("Exported %d comments to clipboard", total), MessageInfo)
-	return tea.SetClipboard(md)
+	return func() tea.Msg { return ClipboardMsg{Content: md} }
 }
 
 // joinHorizontal joins two blocks of text side by side.

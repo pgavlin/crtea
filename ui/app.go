@@ -53,6 +53,14 @@ type StatusMessage struct {
 	Level MessageLevel
 }
 
+// DoneMsg is emitted when the component wants to close.
+type DoneMsg struct{}
+
+// ClipboardMsg is emitted when the component wants to copy text to the clipboard.
+type ClipboardMsg struct {
+	Content string
+}
+
 // App is the main Bubble Tea model for the code review TUI.
 type App struct {
 	// Core data
@@ -203,17 +211,21 @@ func (a App) Init() tea.Cmd {
 	return nil
 }
 
+// SetSize sets the component's dimensions. Call this from the parent model
+// when the available size changes (e.g. in response to tea.WindowSizeMsg).
+func (a *App) SetSize(width, height int) {
+	a.width = width
+	a.height = height
+	a.rebuildAnnotations()
+}
+
 // Update implements tea.Model.
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		a.width = msg.Width
-		a.height = msg.Height
-		a.rebuildAnnotations()
-		return &a, nil
-
 	case tea.KeyPressMsg:
 		return a.handleKey(msg)
+	default:
+		_ = msg
 	}
 	return &a, nil
 }

@@ -15,6 +15,39 @@ import (
 	"github.com/pgavlin/crtea/vcs"
 )
 
+// appWrapper adapts the ui.App component for use as a top-level tea.Program model.
+// It translates tea.WindowSizeMsg into SetSize calls, and converts ui.DoneMsg /
+// ui.ClipboardMsg back into program-level actions (tea.Quit, tea.SetClipboard).
+type appWrapper struct {
+	app ui.App
+}
+
+func (w *appWrapper) Init() tea.Cmd {
+	return w.app.Init()
+}
+
+func (w *appWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		w.app.SetSize(msg.Width, msg.Height)
+		return w, nil
+	case ui.DoneMsg:
+		return w, tea.Quit
+	case ui.ClipboardMsg:
+		return w, tea.SetClipboard(msg.Content)
+	}
+
+	m, cmd := w.app.Update(msg)
+	if a, ok := m.(*ui.App); ok {
+		w.app = *a
+	}
+	return w, cmd
+}
+
+func (w *appWrapper) View() tea.View {
+	return w.app.View()
+}
+
 func main() {
 	themeFlag := flag.String("theme", "", "color theme: dark or light")
 	stdoutFlag := flag.Bool("stdout", false, "export comments to stdout on exit")
@@ -76,7 +109,8 @@ func main() {
 		app = ui.NewPickerApp(backend, th, highlighter, store)
 	}
 
-	p := tea.NewProgram(&app)
+	w := &appWrapper{app: app}
+	p := tea.NewProgram(w)
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -85,7 +119,6 @@ func main() {
 
 	// If --stdout, print comments as markdown
 	if *stdoutFlag {
-		app.ExportMarkdown(os.Stdout)
+		w.app.ExportMarkdown(os.Stdout)
 	}
 }
-

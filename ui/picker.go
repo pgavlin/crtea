@@ -40,7 +40,7 @@ func (a App) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == 'q' && key.Mod == 0:
-		return &a, tea.Quit
+		return &a, func() tea.Msg { return DoneMsg{} }
 	case key.Code == 'j' && key.Mod == 0, key.Code == tea.KeyDown:
 		if a.pickerCursor < len(a.pickerItems)-1 {
 			a.pickerCursor++
