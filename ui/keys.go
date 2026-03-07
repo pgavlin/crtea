@@ -617,6 +617,10 @@ func (a *App) expandGap(gid gapID) {
 		return
 	}
 
+	if a.vcs == nil {
+		a.setMessage("Context expansion requires a VCS backend", messageWarning)
+		return
+	}
 	lines, err := a.vcs.FetchContextLines(file.DisplayPath(), file.Status, startLine, endLine)
 	if err != nil {
 		a.setMessage("Failed to expand context: "+err.Error(), messageError)
@@ -1238,6 +1242,10 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		a.dirty = false
 		return func() tea.Msg { return DoneMsg{Session: a.session} }
 	case "e", "reload":
+		if a.vcs == nil {
+			a.setMessage("Reload requires a VCS backend", messageWarning)
+			return nil
+		}
 		files, err := a.vcs.GetWorkingTreeDiff()
 		if err != nil {
 			a.setMessage("Reload failed: "+err.Error(), messageError)

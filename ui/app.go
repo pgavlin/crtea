@@ -165,9 +165,13 @@ type App struct {
 
 // NewApp creates a new App model.
 func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
+	var vcsInfo vcs.VcsInfo
+	if backend != nil {
+		vcsInfo = backend.Info()
+	}
 	app := App{
 		vcs:           backend,
-		vcsInfo:       backend.Info(),
+		vcsInfo:       vcsInfo,
 		session:       session,
 		diffFiles:     files,
 		highlighter:   hl,
