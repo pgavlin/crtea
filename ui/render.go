@@ -112,45 +112,75 @@ func (a *App) renderFileList(width, height int) string {
 	var lines []string
 	lines = append(lines, headerStyle.Render(truncateOrPad("Files", width-2)))
 
-	for i, file := range a.diffFiles {
-		path := file.DisplayPath()
-		status := file.Status
+	for i, row := range a.fileTreeRows {
+		node := row.Node
 
-		statusColor := th.FileModified
-		switch status {
-		case model.FileAdded:
-			statusColor = th.FileAdded
-		case model.FileDeleted:
-			statusColor = th.FileDeleted
-		case model.FileRenamed:
-			statusColor = th.FileRenamed
-		}
-
-		statusStyle := lipgloss.NewStyle().Foreground(statusColor)
-		nameStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
-
-		// Review marker
-		marker := " "
-		if fr := a.session.GetFileReview(path); fr != nil && fr.Reviewed {
-			marker = lipgloss.NewStyle().Foreground(th.Reviewed).Render("✓")
-		}
-
-		// Comment count
-		commentCount := ""
-		if fr := a.session.GetFileReview(path); fr != nil && fr.HasComments() {
-			total := len(fr.FileComments)
-			for _, cs := range fr.LineComments {
-				total += len(cs)
+		// Build tree guide prefix
+		var prefix strings.Builder
+		for d := 0; d < row.Depth; d++ {
+			if d < len(row.IsLast) && row.IsLast[d] {
+				prefix.WriteString("  ")
+			} else {
+				prefix.WriteString("│ ")
 			}
-			commentCount = lipgloss.NewStyle().Foreground(th.CommentNote).Render(fmt.Sprintf(" (%d)", total))
+		}
+		if row.Depth > 0 {
+			if row.IsLast[len(row.IsLast)-1] {
+				prefix.WriteString("└ ")
+			} else {
+				prefix.WriteString("├ ")
+			}
 		}
 
-		line := fmt.Sprintf(" %s %s %s%s",
-			marker,
-			statusStyle.Render(status.String()),
-			nameStyle.Render(truncate(path, width-8)),
-			commentCount,
-		)
+		treePrefix := lipgloss.NewStyle().Foreground(th.FgDim).Render(prefix.String())
+
+		var line string
+		if row.IsDir {
+			// Directory node
+			dirStyle := lipgloss.NewStyle().Foreground(th.FgSecondary).Bold(true)
+			arrow := "▼ "
+			if a.collapsedDirs[node.Path] {
+				arrow = "▶ "
+			}
+			arrowStyle := lipgloss.NewStyle().Foreground(th.FgDim)
+			line = " " + treePrefix + arrowStyle.Render(arrow) + dirStyle.Render(node.Name+"/")
+		} else {
+			// File node
+			fileIdx := node.FileIdx
+			file := a.diffFiles[fileIdx]
+			path := file.DisplayPath()
+
+			statusColor := th.FileModified
+			switch file.Status {
+			case model.FileAdded:
+				statusColor = th.FileAdded
+			case model.FileDeleted:
+				statusColor = th.FileDeleted
+			case model.FileRenamed:
+				statusColor = th.FileRenamed
+			}
+
+			statusStyle := lipgloss.NewStyle().Foreground(statusColor)
+
+			// Review marker
+			marker := " "
+			if fr := a.session.GetFileReview(path); fr != nil && fr.Reviewed {
+				marker = lipgloss.NewStyle().Foreground(th.Reviewed).Render("✓")
+			}
+
+			// Comment count
+			commentCount := ""
+			if fr := a.session.GetFileReview(path); fr != nil && fr.HasComments() {
+				total := len(fr.FileComments)
+				for _, cs := range fr.LineComments {
+					total += len(cs)
+				}
+				commentCount = lipgloss.NewStyle().Foreground(th.CommentNote).Render(fmt.Sprintf(" (%d)", total))
+			}
+
+			nameStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+			line = " " + treePrefix + marker + statusStyle.Render(file.Status.String()) + " " + nameStyle.Render(node.Name) + commentCount
+		}
 
 		if i == a.fileListCursor && a.focusedPanel == PanelFileList {
 			line = lipgloss.NewStyle().

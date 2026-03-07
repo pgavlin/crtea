@@ -120,11 +120,10 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	// Enter: jump to file (file list) or toggle expand (diff)
+	// Enter: jump to file / toggle dir (file list) or toggle expand (diff)
 	case key.Code == tea.KeyEnter:
 		if a.focusedPanel == PanelFileList {
-			a.jumpToFile(a.fileListCursor)
-			a.focusedPanel = PanelDiff
+			a.fileListEnter()
 		} else if a.focusedPanel == PanelDiff {
 			a.toggleExpandAtCursor()
 		}
@@ -326,8 +325,8 @@ func (a App) handleVisualKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (a *App) cursorDown(n int) {
 	if a.focusedPanel == PanelFileList {
 		a.fileListCursor += n
-		if a.fileListCursor >= len(a.diffFiles) {
-			a.fileListCursor = len(a.diffFiles) - 1
+		if a.fileListCursor >= len(a.fileTreeRows) {
+			a.fileListCursor = len(a.fileTreeRows) - 1
 		}
 		if a.fileListCursor < 0 {
 			a.fileListCursor = 0
@@ -454,6 +453,32 @@ func (a *App) prevHunk() {
 			a.ensureCursorVisible()
 			return
 		}
+	}
+}
+
+// File list actions
+
+func (a *App) fileListEnter() {
+	if a.fileListCursor < 0 || a.fileListCursor >= len(a.fileTreeRows) {
+		return
+	}
+	row := a.fileTreeRows[a.fileListCursor]
+	if row.IsDir {
+		// Toggle collapse
+		if a.collapsedDirs[row.Node.Path] {
+			delete(a.collapsedDirs, row.Node.Path)
+		} else {
+			a.collapsedDirs[row.Node.Path] = true
+		}
+		a.rebuildFileTree()
+		// Keep cursor in bounds
+		if a.fileListCursor >= len(a.fileTreeRows) {
+			a.fileListCursor = len(a.fileTreeRows) - 1
+		}
+	} else {
+		// Jump to file in diff view
+		a.jumpToFile(row.Node.FileIdx)
+		a.focusedPanel = PanelDiff
 	}
 }
 
@@ -891,6 +916,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 			return nil
 		}
 		a.diffFiles = files
+		a.rebuildFileTree()
 		a.rebuildAnnotations()
 		a.setMessage(fmt.Sprintf("Reloaded %d files", len(files)), MessageInfo)
 		return nil

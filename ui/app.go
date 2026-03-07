@@ -71,6 +71,9 @@ type App struct {
 	expandedGaps map[GapID][]model.DiffLine
 
 	// File list state
+	fileTree       *FileTreeNode
+	fileTreeRows   []FileTreeRow
+	collapsedDirs  map[string]bool
 	fileListCursor int
 	fileListScroll int
 
@@ -107,18 +110,25 @@ type App struct {
 // NewApp creates a new App model.
 func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme) App {
 	app := App{
-		vcs:          backend,
-		vcsInfo:      backend.Info(),
-		session:      session,
-		diffFiles:    files,
-		inputMode:    ModeNormal,
-		focusedPanel: PanelDiff,
-		showFileList: true,
-		expandedGaps: make(map[GapID][]model.DiffLine),
-		theme:        th,
+		vcs:           backend,
+		vcsInfo:       backend.Info(),
+		session:       session,
+		diffFiles:     files,
+		inputMode:     ModeNormal,
+		focusedPanel:  PanelDiff,
+		showFileList:  true,
+		expandedGaps:  make(map[GapID][]model.DiffLine),
+		collapsedDirs: make(map[string]bool),
+		theme:         th,
 	}
+	app.rebuildFileTree()
 	app.rebuildAnnotations()
 	return app
+}
+
+func (a *App) rebuildFileTree() {
+	a.fileTree = buildFileTree(a.diffFiles)
+	a.fileTreeRows = flattenTree(a.fileTree, a.collapsedDirs)
 }
 
 func (a *App) rebuildAnnotations() {
