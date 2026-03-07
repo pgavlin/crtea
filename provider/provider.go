@@ -11,8 +11,14 @@ type Provider interface {
 	// GetReviewRequest fetches metadata for a review request (PR, MR, etc.).
 	GetReviewRequest(id string) (*ReviewRequest, error)
 
-	// GetDiff fetches the diff for a review request in unified format.
+	// GetDiff fetches the combined diff for a review request in unified format.
 	GetDiff(id string) (string, error)
+
+	// ListCommits returns the commits in a review request (newest-first).
+	ListCommits(id string) ([]Commit, error)
+
+	// GetCommitDiff fetches the diff for a single commit.
+	GetCommitDiff(id string, commitID string) (string, error)
 
 	// ListReviews fetches existing top-level reviews.
 	ListReviews(id string) ([]Review, error)

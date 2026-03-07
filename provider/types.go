@@ -74,6 +74,15 @@ type CommentDraft struct {
 	Body      string
 }
 
+// Commit holds metadata for a single commit in a review request.
+type Commit struct {
+	ID      string
+	ShortID string
+	Summary string
+	Author  string
+	Time    time.Time
+}
+
 // RefreshResult describes what changed on refresh.
 type RefreshResult struct {
 	Request         *ReviewRequest

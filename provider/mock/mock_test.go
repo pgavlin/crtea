@@ -165,6 +165,57 @@ func TestReplyToComment(t *testing.T) {
 	}
 }
 
+func TestListCommits(t *testing.T) {
+	m := New()
+	commits, err := m.ListCommits("42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 2 {
+		t.Fatalf("expected 2 commits, got %d", len(commits))
+	}
+	if commits[0].ShortID != "abc1234" {
+		t.Errorf("expected abc1234, got %s", commits[0].ShortID)
+	}
+	if commits[1].Summary != "Add middleware unit tests" {
+		t.Errorf("unexpected summary: %s", commits[1].Summary)
+	}
+}
+
+func TestGetCommitDiff(t *testing.T) {
+	m := New()
+
+	// Commit 1: middleware + server
+	diff1, err := m.GetCommitDiff("42", "abc1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(diff1, "auth/middleware.go") {
+		t.Error("commit 1 diff missing auth/middleware.go")
+	}
+	if !containsString(diff1, "server.go") {
+		t.Error("commit 1 diff missing server.go")
+	}
+	if containsString(diff1, "middleware_test.go") {
+		t.Error("commit 1 diff should not contain test file")
+	}
+
+	// Commit 2: tests
+	diff2, err := m.GetCommitDiff("42", "def5678")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(diff2, "middleware_test.go") {
+		t.Error("commit 2 diff missing middleware_test.go")
+	}
+
+	// Unknown commit
+	_, err = m.GetCommitDiff("42", "unknown")
+	if err == nil {
+		t.Error("expected error for unknown commit")
+	}
+}
+
 func TestDiffParseable(t *testing.T) {
 	m := New()
 	diff, _ := m.GetDiff("42")

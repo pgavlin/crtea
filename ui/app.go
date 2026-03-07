@@ -276,6 +276,18 @@ func (a *App) SetProvider(p provider.Provider, id string) {
 	a.providerID = id
 }
 
+// SetCommits populates the commit list and per-commit diffs for the review.
+// commits should be newest-first. All commits are enabled by default.
+func (a *App) SetCommits(commits []vcs.CommitInfo, diffs map[string][]model.DiffFile) {
+	a.reviewCommits = commits
+	a.commitDiffs = diffs
+	a.enabledCommits = make(map[string]bool, len(commits))
+	for _, c := range commits {
+		a.enabledCommits[c.ID] = true
+	}
+	a.rebuildFromCommits()
+}
+
 // Init implements tea.Model.
 func (a App) Init() tea.Cmd {
 	return nil

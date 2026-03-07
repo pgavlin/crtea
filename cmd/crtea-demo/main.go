@@ -66,10 +66,28 @@ func run() error {
 	}
 	highlighter := syntax.NewHighlighter(chromaStyle)
 
-	// Parse the mock diff
+	// Parse the combined diff
 	diffText, _ := m.GetDiff("42")
 	files := vcs.ParseDiff(diffText)
 	highlighter.HighlightFiles(files)
+
+	// Parse per-commit diffs
+	commits, _ := m.ListCommits("42")
+	commitInfos := make([]vcs.CommitInfo, len(commits))
+	commitDiffs := make(map[string][]model.DiffFile, len(commits))
+	for i, c := range commits {
+		commitInfos[i] = vcs.CommitInfo{
+			ID:      c.ID,
+			ShortID: c.ShortID,
+			Summary: c.Summary,
+			Author:  c.Author,
+			Time:    c.Time,
+		}
+		cdiff, _ := m.GetCommitDiff("42", c.ID)
+		cf := vcs.ParseDiff(cdiff)
+		highlighter.HighlightFiles(cf)
+		commitDiffs[c.ID] = cf
+	}
 
 	// Build session
 	rr, _ := m.GetReviewRequest("42")
@@ -120,6 +138,7 @@ func run() error {
 	// Create app — pass nil backend since we don't need VCS operations
 	app := ui.NewApp(nil, files, session, th, highlighter, store)
 	app.SetProvider(m, "42")
+	app.SetCommits(commitInfos, commitDiffs)
 
 	w := &appWrapper{app: app}
 	p := tea.NewProgram(w)
