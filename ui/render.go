@@ -135,16 +135,12 @@ func (a *App) renderDescription(width, height int) string {
 		scrollEnd = len(descLines)
 	}
 
-	titleStyle := lipgloss.NewStyle().Foreground(th.FgSecondary).Bold(true)
 	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
 
 	var lines []string
 	for i := a.descScroll; i < scrollEnd; i++ {
 		prefix := "  "
 		line := prefix + contentStyle.Render(descLines[i])
-		if i == a.descScroll && a.descScroll == 0 {
-			line = "  " + titleStyle.Render("Description: ") + contentStyle.Render(descLines[i])
-		}
 		lines = append(lines, truncateOrPad(line, width))
 	}
 
@@ -625,8 +621,8 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 	if line.Spans != nil {
 		// Render with syntax highlighting
 		var rendered strings.Builder
-		col := 0       // visual columns emitted so far
-		skipped := 0   // visual columns skipped for horizontal scroll
+		col := 0     // visual columns emitted so far
+		skipped := 0 // visual columns skipped for horizontal scroll
 		for _, span := range line.Spans {
 			if col >= contentWidth {
 				break
