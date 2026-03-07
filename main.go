@@ -10,6 +10,7 @@ import (
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/output"
 	"github.com/pgavlin/crtea/persistence"
+	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/ui"
 	"github.com/pgavlin/crtea/vcs"
@@ -64,13 +65,19 @@ func main() {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	// Select theme
+	// Select theme and syntax highlighting style
 	th := theme.Dark()
+	chromaStyle := "monokai"
 	if *themeFlag == "light" {
 		th = theme.Light()
+		chromaStyle = "github"
 	}
 
-	app := ui.NewApp(backend, files, session, th)
+	// Apply syntax highlighting
+	highlighter := syntax.NewHighlighter(chromaStyle)
+	highlighter.HighlightFiles(files)
+
+	app := ui.NewApp(backend, files, session, th, highlighter)
 	p := tea.NewProgram(&app)
 
 	if _, err := p.Run(); err != nil {

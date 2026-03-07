@@ -451,19 +451,66 @@ func (a *App) renderDiffLine(ann AnnotatedLine, width int, isCursor, isVisualSel
 		contentStyle = contentStyle.Background(th.BgHighlight).Bold(true)
 	}
 
-	// Apply horizontal scroll
+	gutterWidth := 10                       // "1234 5678 "
+	contentWidth := width - gutterWidth - 1 // -1 for marker
+	markerStyle := contentStyle
+
+	// Determine background for syntax-highlighted spans
+	var bgColor color.Color
+	switch line.Origin {
+	case model.OriginAddition:
+		bgColor = th.DiffAddBg
+	case model.OriginDeletion:
+		bgColor = th.DiffDelBg
+	}
+	if isCursor || isVisualSelected {
+		bgColor = th.BgHighlight
+	}
+
+	if line.Spans != nil && a.scrollX == 0 {
+		// Render with syntax highlighting
+		var rendered strings.Builder
+		col := 0
+		for _, span := range line.Spans {
+			if col >= contentWidth {
+				break
+			}
+			text := span.Text
+			remaining := contentWidth - col
+			if len(text) > remaining {
+				text = text[:remaining]
+			}
+			spanStyle := lipgloss.NewStyle()
+			if span.FG != "" {
+				spanStyle = spanStyle.Foreground(lipgloss.Color(span.FG))
+			} else {
+				spanStyle = spanStyle.Foreground(contentStyle.GetForeground())
+			}
+			if bgColor != nil {
+				spanStyle = spanStyle.Background(bgColor)
+			}
+			rendered.WriteString(spanStyle.Render(text))
+			col += len(text)
+		}
+		// Pad remaining width
+		if col < contentWidth {
+			padStyle := lipgloss.NewStyle()
+			if bgColor != nil {
+				padStyle = padStyle.Background(bgColor)
+			}
+			rendered.WriteString(padStyle.Render(strings.Repeat(" ", contentWidth-col)))
+		}
+		return gutter + markerStyle.Render(marker) + rendered.String()
+	}
+
+	// Fallback: no syntax highlighting or horizontal scroll active
 	content := line.Content
 	if a.scrollX > 0 && len(content) > a.scrollX {
 		content = content[a.scrollX:]
 	} else if a.scrollX > 0 {
 		content = ""
 	}
-
-	gutterWidth := 10                       // "1234 5678 "
-	contentWidth := width - gutterWidth - 1 // -1 for marker
 	renderedContent := contentStyle.Render(truncateOrPad(content, contentWidth))
-
-	markerStyle := contentStyle
 	return gutter + markerStyle.Render(marker) + renderedContent
 }
 

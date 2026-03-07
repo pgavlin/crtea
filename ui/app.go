@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/pgavlin/crtea/model"
+	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/vcs"
 )
@@ -49,10 +50,11 @@ type StatusMessage struct {
 // App is the main Bubble Tea model for the code review TUI.
 type App struct {
 	// Core data
-	vcs       vcs.Backend
-	vcsInfo   vcs.VcsInfo
-	session   *model.ReviewSession
-	diffFiles []model.DiffFile
+	vcs         vcs.Backend
+	vcsInfo     vcs.VcsInfo
+	session     *model.ReviewSession
+	diffFiles   []model.DiffFile
+	highlighter *syntax.Highlighter
 
 	// UI state
 	inputMode    InputMode
@@ -108,12 +110,13 @@ type App struct {
 }
 
 // NewApp creates a new App model.
-func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme) App {
+func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter) App {
 	app := App{
 		vcs:           backend,
 		vcsInfo:       backend.Info(),
 		session:       session,
 		diffFiles:     files,
+		highlighter:   hl,
 		inputMode:     ModeNormal,
 		focusedPanel:  PanelDiff,
 		showFileList:  true,

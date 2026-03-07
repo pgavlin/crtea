@@ -915,6 +915,9 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 			a.setMessage("Reload failed: "+err.Error(), MessageError)
 			return nil
 		}
+		if a.highlighter != nil {
+			a.highlighter.HighlightFiles(files)
+		}
 		a.diffFiles = files
 		a.rebuildFileTree()
 		a.rebuildAnnotations()

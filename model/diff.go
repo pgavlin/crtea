@@ -37,12 +37,19 @@ const (
 	OriginDeletion
 )
 
+// StyledSpan is a segment of text with a foreground color.
+type StyledSpan struct {
+	Text string
+	FG   string // hex color like "#ff0000", empty for default
+}
+
 // DiffLine represents a single line in a diff hunk.
 type DiffLine struct {
-	Origin   LineOrigin
-	Content  string
+	Origin    LineOrigin
+	Content   string
 	OldLineNo int // 0 means not applicable
 	NewLineNo int // 0 means not applicable
+	Spans     []StyledSpan // syntax-highlighted spans, nil if not highlighted
 }
 
 // DiffHunk represents a hunk in a diff.
