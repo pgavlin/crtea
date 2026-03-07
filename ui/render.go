@@ -56,12 +56,7 @@ func (a *App) renderFooter() string {
 	case ModeSearch:
 		content = "/" + a.searchBuffer + "█"
 	case ModeComment:
-		modeStyle := lipgloss.NewStyle().
-			Background(a.commentTypeColor(a.commentType)).
-			Foreground(th.ModeFg).
-			Bold(true).
-			Padding(0, 1)
-		content = modeStyle.Render(a.commentType.String()) + " " + a.commentBuffer + "█"
+		content = " Enter: save | Esc: cancel | Tab: cycle type | Shift-Enter: newline"
 	case ModeVisualSelect:
 		modeStyle := lipgloss.NewStyle().
 			Background(th.ModeBg).
@@ -197,13 +192,24 @@ func (a *App) renderDiffView(width, height int) string {
 		end = len(a.annotations)
 	}
 
-	for i := a.scrollOffset; i < end; i++ {
+	for i := a.scrollOffset; i < end && len(lines) < vpHeight; i++ {
 		ann := a.annotations[i]
 		isCursor := (i == a.cursorLine && a.focusedPanel == PanelDiff)
 		isVisualSelected := a.isVisualSelected(i)
 
 		line := a.renderAnnotatedLine(ann, width, isCursor, isVisualSelected)
 		lines = append(lines, line)
+
+		// Inject inline comment editor after the cursor line
+		if i == a.cursorLine && a.inputMode == ModeComment {
+			editorLines := a.renderCommentEditor(width)
+			for _, el := range editorLines {
+				if len(lines) >= vpHeight {
+					break
+				}
+				lines = append(lines, el)
+			}
+		}
 	}
 
 	// Pad remaining lines
@@ -534,6 +540,65 @@ func (a *App) renderCommentLine(ann AnnotatedLine, width int, isCursor, isFileLe
 	inner := truncateOrPad(text, innerWidth)
 	line := gutter + borderStyle.Render("│") + " " + contentStyle.Render(inner) + " " + borderStyle.Render("│")
 	return truncateOrPad(line, width)
+}
+
+func (a *App) renderCommentEditor(width int) []string {
+	th := a.theme
+	typeColor := a.commentTypeColor(a.commentType)
+
+	gutter := "          "
+	boxWidth := width - len(gutter)
+	if boxWidth < 10 {
+		boxWidth = 10
+	}
+	innerWidth := boxWidth - 4 // "│ " + content + " │"
+
+	borderStyle := lipgloss.NewStyle().Foreground(typeColor)
+	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+
+	// Type badge for top border
+	typeBadge := lipgloss.NewStyle().
+		Background(typeColor).
+		Foreground(th.ModeFg).
+		Bold(true).
+		Padding(0, 1).
+		Render(a.commentType.String())
+
+	// Top border
+	badgeWidth := lipgloss.Width(typeBadge)
+	restWidth := boxWidth - 2 - badgeWidth
+	if restWidth < 1 {
+		restWidth = 1
+	}
+	var lines []string
+	lines = append(lines, gutter+borderStyle.Render("╭")+typeBadge+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
+
+	// Wrap the buffer content, inserting cursor
+	buf := a.commentBuffer
+	cursor := a.commentCursor
+	// Insert cursor marker
+	before := buf[:cursor]
+	after := buf[cursor:]
+	display := before + "█" + after
+
+	wrapWidth := innerWidth
+	if wrapWidth < 10 {
+		wrapWidth = 0
+	}
+	wrapped := wrapComment(display, wrapWidth)
+	if len(wrapped) == 0 {
+		wrapped = []string{"█"}
+	}
+
+	for _, wl := range wrapped {
+		inner := truncateOrPad(wl, innerWidth)
+		lines = append(lines, gutter+borderStyle.Render("│")+" "+contentStyle.Render(inner)+" "+borderStyle.Render("│"))
+	}
+
+	// Bottom border
+	lines = append(lines, gutter+borderStyle.Render("╰"+strings.Repeat("─", boxWidth-2)+"╯"))
+
+	return lines
 }
 
 func (a *App) commentTypeColor(ct model.CommentType) color.Color {
