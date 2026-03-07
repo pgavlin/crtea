@@ -25,6 +25,7 @@ const (
 	modeConfirm
 	modeVisualSelect
 	modeReview
+	modeBug
 )
 
 type focusedPanel int
@@ -127,6 +128,10 @@ type App struct {
 	reviewBuffer string
 	reviewCursor int
 	reviewStatus model.ApprovalStatus
+
+	// Bug report editor
+	bugBuffer string
+	bugCursor int
 
 	// Messages
 	message    *statusMessage
@@ -267,8 +272,28 @@ func (a App) View() tea.View {
 		contentHeight = 1
 	}
 
-	// Review editor pane (steals height from content area)
-	if a.inputMode == modeReview {
+	// Bug report editor pane (steals height from content area)
+	if a.inputMode == modeBug {
+		bugHeight := 8
+		if bugHeight > contentHeight-2 {
+			bugHeight = contentHeight - 2
+		}
+		if bugHeight < 3 {
+			bugHeight = 3
+		}
+		contentHeight -= bugHeight + 1
+		if a.showFileList {
+			fileListWidth := a.fileListWidth()
+			diffWidth := a.width - fileListWidth - 1
+			fileList := a.renderFileList(fileListWidth, contentHeight)
+			diffView := a.renderDiffView(diffWidth, contentHeight)
+			b.WriteString(joinHorizontal(fileList, diffView, contentHeight))
+		} else {
+			b.WriteString(a.renderDiffView(a.width, contentHeight))
+		}
+		b.WriteString("\n")
+		b.WriteString(a.renderBugEditor(a.width, bugHeight))
+	} else if a.inputMode == modeReview {
 		reviewHeight := 8
 		if reviewHeight > contentHeight-2 {
 			reviewHeight = contentHeight - 2
@@ -306,6 +331,15 @@ func (a App) View() tea.View {
 	b.WriteString(a.renderFooter())
 
 	return tea.NewView(b.String())
+}
+
+// captureScreen renders the current screen as it would appear in normal mode.
+func (a *App) captureScreen() string {
+	saved := a.inputMode
+	a.inputMode = modeNormal
+	view := a.View()
+	a.inputMode = saved
+	return view.Content
 }
 
 func (a *App) fileListWidth() int {

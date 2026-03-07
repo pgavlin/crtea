@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/pgavlin/crtea/bugreport"
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/output"
 )
@@ -34,6 +36,8 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a.handleVisualKey(msg)
 	case modeReview:
 		return a.handleReviewKey(msg)
+	case modeBug:
+		return a.handleBugKey(msg)
 	default:
 		return a.handleNormalKey(msg)
 	}
@@ -256,8 +260,10 @@ func (a App) handleCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.commandBuffer = ""
 	case key.Code == tea.KeyEnter:
 		cmd := a.executeCommand(a.commandBuffer)
-		a.inputMode = modeNormal
 		a.commandBuffer = ""
+		if a.inputMode == modeCommand {
+			a.inputMode = modeNormal
+		}
 		return &a, cmd
 	case key.Code == tea.KeyBackspace:
 		if len(a.commandBuffer) > 0 {
@@ -940,6 +946,70 @@ func (a *App) saveOverallReview() {
 	a.setMessage("Overall review saved", messageInfo)
 }
 
+// Bug report
+
+func (a *App) enterBugReport() {
+	a.bugBuffer = ""
+	a.bugCursor = 0
+	a.inputMode = modeBug
+}
+
+func (a App) handleBugKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.Key()
+	switch {
+	case key.Code == tea.KeyEscape:
+		a.inputMode = modeNormal
+		a.bugBuffer = ""
+	case key.Code == tea.KeyEnter && key.Mod == tea.ModShift:
+		a.bugBuffer = a.bugBuffer[:a.bugCursor] + "\n" + a.bugBuffer[a.bugCursor:]
+		a.bugCursor++
+	case key.Code == tea.KeyEnter:
+		return a.submitBugReport()
+	case key.Code == tea.KeyBackspace:
+		if a.bugCursor > 0 {
+			a.bugBuffer = a.bugBuffer[:a.bugCursor-1] + a.bugBuffer[a.bugCursor:]
+			a.bugCursor--
+		}
+	default:
+		if key.Text != "" {
+			a.bugBuffer = a.bugBuffer[:a.bugCursor] + key.Text + a.bugBuffer[a.bugCursor:]
+			a.bugCursor += len(key.Text)
+		}
+	}
+	return &a, nil
+}
+
+func (a App) submitBugReport() (tea.Model, tea.Cmd) {
+	body := strings.TrimSpace(a.bugBuffer)
+	if body == "" {
+		a.inputMode = modeNormal
+		a.bugBuffer = ""
+		return &a, nil
+	}
+
+	screenContent := a.captureScreen()
+	env := bugreport.CollectEnvironment(a.vcsInfo, a.width, a.height)
+
+	report := bugreport.Report{
+		Body:        body,
+		Environment: env,
+		CreatedAt:   time.Now().UTC(),
+	}
+
+	path, err := bugreport.Write(report, a.session, screenContent)
+	if err != nil {
+		a.setMessage("Bug report failed: "+err.Error(), messageError)
+		a.inputMode = modeNormal
+		a.bugBuffer = ""
+		return &a, nil
+	}
+
+	a.inputMode = modeNormal
+	a.bugBuffer = ""
+	a.setMessage(fmt.Sprintf("Bug report saved to %s", path), messageInfo)
+	return &a, func() tea.Msg { return ClipboardMsg{Content: path} }
+}
+
 // Search
 
 func (a *App) searchNext(forward bool) {
@@ -1057,6 +1127,9 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		return nil
 	case "review":
 		a.enterOverallReview()
+		return nil
+	case "bug":
+		a.enterBugReport()
 		return nil
 	case "clip", "export":
 		return a.exportComments()

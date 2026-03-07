@@ -210,6 +210,8 @@ func (a *App) renderFooter() string {
 		content = " Enter: save | Esc: cancel | Tab: cycle type | Shift-Enter: newline"
 	case modeReview:
 		content = " Enter: save | Esc: cancel | Tab: cycle status | Shift-Enter: newline"
+	case modeBug:
+		content = " Enter: submit | Esc: cancel | Shift-Enter: newline"
 	case modeVisualSelect:
 		modeStyle := lipgloss.NewStyle().
 			Background(th.ModeBg).
@@ -575,7 +577,7 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 	}
 
 	gutterStyle := lipgloss.NewStyle().Foreground(th.FgDim)
-	gutter := gutterStyle.Render(oldNo + " " + newNo)
+	gutter := gutterStyle.Render(oldNo + " " + newNo + " ")
 
 	// Origin marker and content style
 	var marker string
@@ -630,8 +632,10 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 			}
 			text := span.Text
 			remaining := contentWidth - col
-			if len(text) > remaining {
-				text = text[:remaining]
+			textWidth := lipgloss.Width(text)
+			if textWidth > remaining {
+				text = ansi.Truncate(text, remaining, "")
+				textWidth = lipgloss.Width(text)
 			}
 			spanStyle := lipgloss.NewStyle()
 			if span.FG != "" {
@@ -643,7 +647,7 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 				spanStyle = spanStyle.Background(bgColor)
 			}
 			rendered.WriteString(spanStyle.Render(text))
-			col += len(text)
+			col += textWidth
 		}
 		// Pad remaining width
 		if col < contentWidth {
@@ -680,7 +684,7 @@ func (a *App) renderExpandedContextLine(ann annotatedLine, width int, isCursor b
 	newNo := fmt.Sprintf("%4d", line.NewLineNo)
 
 	gutterStyle := lipgloss.NewStyle().Foreground(th.FgDim)
-	gutter := gutterStyle.Render(oldNo + " " + newNo)
+	gutter := gutterStyle.Render(oldNo + " " + newNo + " ")
 
 	contentStyle := lipgloss.NewStyle().Foreground(th.ExpandedCtxFg)
 	if isCursor {
@@ -966,6 +970,68 @@ func (a *App) renderReviewEditor(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (a *App) renderBugEditor(width, height int) string {
+	th := a.theme
+
+	borderColor := th.CommentIssue // red for bugs
+	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
+
+	boxWidth := width
+	innerWidth := boxWidth - 4 // "│ " + content + " │"
+	if innerWidth < 10 {
+		innerWidth = 10
+	}
+
+	titleStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true)
+	title := titleStyle.Render(" Bug Report ")
+
+	// Top border
+	titleWidth := lipgloss.Width(title)
+	restWidth := boxWidth - 2 - titleWidth
+	if restWidth < 1 {
+		restWidth = 1
+	}
+
+	var lines []string
+	lines = append(lines, borderStyle.Render("╭")+title+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
+
+	// Content lines with cursor
+	buf := a.bugBuffer
+	cursor := a.bugCursor
+	before := buf[:cursor]
+	after := buf[cursor:]
+	display := before + "█" + after
+
+	wrapWidth := innerWidth
+	if wrapWidth < 10 {
+		wrapWidth = 0
+	}
+	wrapped := wrapComment(display, wrapWidth)
+	if len(wrapped) == 0 {
+		wrapped = []string{"█"}
+	}
+
+	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+	maxContentLines := height - 2 // top + bottom border
+	for i, wl := range wrapped {
+		if i >= maxContentLines {
+			break
+		}
+		inner := truncateOrPad(wl, innerWidth)
+		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(inner)+" "+borderStyle.Render("│"))
+	}
+
+	// Pad to fill remaining height
+	for len(lines) < height-1 {
+		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(strings.Repeat(" ", innerWidth))+" "+borderStyle.Render("│"))
+	}
+
+	// Bottom border
+	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", boxWidth-2)+"╯"))
+
+	return strings.Join(lines, "\n")
+}
+
 func (a *App) commentTypeColor(ct model.CommentType) color.Color {
 	th := a.theme
 	switch ct {
@@ -1028,6 +1094,7 @@ func (a *App) renderHelp(height int) string {
 		"  :e / :reload      Reload diff",
 		"  :clip / :export   Export comments to clipboard",
 		"  :review           Open overall review",
+		"  :bug              File a bug report",
 		"  :clear            Clear all comments",
 		"",
 		"Search",
