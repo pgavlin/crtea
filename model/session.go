@@ -61,6 +61,7 @@ type ReviewSession struct {
 	BaseCommit  string                 `json:"base_commit"`
 	DiffSource  DiffSource             `json:"diff_source"`
 	CommitRange []string               `json:"commit_range,omitempty"`
+	Description string                 `json:"description,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`
 	Files       map[string]*FileReview `json:"files"`

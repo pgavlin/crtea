@@ -113,7 +113,8 @@ func (g *GitBackend) FetchContextLines(filePath string, status model.FileStatus,
 }
 
 func (g *GitBackend) GetRecentCommits(offset, limit int) ([]CommitInfo, error) {
-	format := "%H%n%h%n%s%n%an%n%aI%n%D"
+	// Use NUL byte as record separator so multi-line bodies are handled correctly.
+	format := "%H%n%h%n%s%n%b%x00%an%n%aI%n%D"
 	out, err := gitOutput(g.info.RootPath, "log",
 		fmt.Sprintf("--skip=%d", offset),
 		fmt.Sprintf("--max-count=%d", limit),
@@ -125,25 +126,56 @@ func (g *GitBackend) GetRecentCommits(offset, limit int) ([]CommitInfo, error) {
 
 	var commits []CommitInfo
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	for i := 0; i+5 < len(lines); i += 6 {
-		t, _ := time.Parse(time.RFC3339, lines[i+4])
-		branch := ""
-		refs := lines[i+5]
-		if strings.Contains(refs, "HEAD -> ") {
-			parts := strings.SplitAfter(refs, "HEAD -> ")
-			if len(parts) > 1 {
-				branch = strings.Split(parts[1], ",")[0]
-				branch = strings.TrimSpace(branch)
-			}
+	for i := 0; i < len(lines); {
+		if i+2 >= len(lines) {
+			break
 		}
-		commits = append(commits, CommitInfo{
-			ID:         lines[i],
-			ShortID:    lines[i+1],
-			Summary:    lines[i+2],
-			Author:     lines[i+3],
-			Time:       t,
-			BranchName: branch,
-		})
+		id := lines[i]
+		shortID := lines[i+1]
+		summary := lines[i+2]
+		i += 3
+
+		// Collect body lines until we hit the NUL separator
+		var bodyLines []string
+		for i < len(lines) {
+			if idx := strings.IndexByte(lines[i], 0); idx >= 0 {
+				// This line contains the NUL; text before it is the last body line
+				if before := lines[i][:idx]; before != "" {
+					bodyLines = append(bodyLines, before)
+				}
+				// Text after NUL is the author field
+				after := lines[i][idx+1:]
+				i++
+				// Parse remaining fixed fields: aI, D
+				if i+1 >= len(lines) {
+					break
+				}
+				t, _ := time.Parse(time.RFC3339, lines[i])
+				i++
+				branch := ""
+				refs := lines[i]
+				if strings.Contains(refs, "HEAD -> ") {
+					parts := strings.SplitAfter(refs, "HEAD -> ")
+					if len(parts) > 1 {
+						branch = strings.Split(parts[1], ",")[0]
+						branch = strings.TrimSpace(branch)
+					}
+				}
+				i++
+				commits = append(commits, CommitInfo{
+					ID:         id,
+					ShortID:    shortID,
+					Summary:    summary,
+					Body:       strings.TrimSpace(strings.Join(bodyLines, "\n")),
+					Author:     after,
+					Time:       t,
+					BranchName: branch,
+				})
+				break
+			}
+			bodyLines = append(bodyLines, lines[i])
+			i++
+		}
 	}
 	return commits, nil
 }

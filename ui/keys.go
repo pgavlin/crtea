@@ -164,7 +164,18 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Toggle commit (in commit list)
 	case key.Code == ' ':
 		if a.focusedPanel == panelCommitList {
-			a.toggleCommitAtCursor()
+			if a.showDescription {
+				// no toggle in description view
+			} else {
+				a.toggleCommitAtCursor()
+			}
+		}
+
+	// Toggle between commit list and description
+	case key.Text == "D":
+		if a.commitListItems() != nil || a.showDescription {
+			a.showDescription = !a.showDescription
+			a.descScroll = 0
 		}
 
 	// Visual mode
@@ -353,13 +364,27 @@ func (a *App) cursorDown(n int) {
 		return
 	}
 	if a.focusedPanel == panelCommitList {
-		items := a.commitListItems()
-		a.commitCursor += n
-		if a.commitCursor >= len(items) {
-			a.commitCursor = len(items) - 1
-		}
-		if a.commitCursor < 0 {
-			a.commitCursor = 0
+		if a.showDescription {
+			a.descScroll += n
+			maxScroll := a.descriptionLineCount() - (a.topPanelHeight() - 1)
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			if a.descScroll > maxScroll {
+				a.descScroll = maxScroll
+			}
+			if a.descScroll < 0 {
+				a.descScroll = 0
+			}
+		} else {
+			items := a.commitListItems()
+			a.commitCursor += n
+			if a.commitCursor >= len(items) {
+				a.commitCursor = len(items) - 1
+			}
+			if a.commitCursor < 0 {
+				a.commitCursor = 0
+			}
 		}
 		return
 	}
@@ -383,9 +408,16 @@ func (a *App) cursorUp(n int) {
 		return
 	}
 	if a.focusedPanel == panelCommitList {
-		a.commitCursor -= n
-		if a.commitCursor < 0 {
-			a.commitCursor = 0
+		if a.showDescription {
+			a.descScroll -= n
+			if a.descScroll < 0 {
+				a.descScroll = 0
+			}
+		} else {
+			a.commitCursor -= n
+			if a.commitCursor < 0 {
+				a.commitCursor = 0
+			}
 		}
 		return
 	}

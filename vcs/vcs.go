@@ -21,6 +21,7 @@ type CommitInfo struct {
 	ShortID    string
 	BranchName string
 	Summary    string
+	Body       string // full commit message body (excluding summary line)
 	Author     string
 	Time       time.Time
 }

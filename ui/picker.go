@@ -134,6 +134,11 @@ func (a App) pickerConfirm() (tea.Model, tea.Cmd) {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
+	// Generate default description from commit messages if not already set
+	if session.Description == "" {
+		session.Description = a.buildDefaultDescription(commits, includesWorkTree)
+	}
+
 	a.session = session
 	a.phase = phaseReview
 	a.inputMode = modeNormal
@@ -259,6 +264,27 @@ func (a *App) renderPicker() string {
 	}
 
 	return b.String()
+}
+
+// buildDefaultDescription creates a squash-style description from commit messages.
+func (a *App) buildDefaultDescription(commits []vcs.CommitInfo, includesWorkTree bool) string {
+	var sections []string
+	if includesWorkTree {
+		sections = append(sections, "* Working tree changes")
+	}
+	// Commits are newest-first; list them oldest-first for chronological order
+	for i := len(commits) - 1; i >= 0; i-- {
+		c := commits[i]
+		entry := "* " + c.Summary
+		if c.Body != "" {
+			// Indent body lines under the bullet
+			for _, line := range strings.Split(c.Body, "\n") {
+				entry += "\n  " + line
+			}
+		}
+		sections = append(sections, entry)
+	}
+	return strings.Join(sections, "\n\n")
 }
 
 func relativeTime(t time.Time) string {

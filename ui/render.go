@@ -107,6 +107,62 @@ func (a *App) renderCommitList(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (a *App) renderDescription(width, height int) string {
+	th := a.theme
+	isFocused := a.focusedPanel == panelCommitList
+
+	desc := ""
+	if a.session != nil {
+		desc = a.session.Description
+	}
+	descLines := strings.Split(desc, "\n")
+
+	visibleLines := height - 1 // last line is separator
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+
+	// Scroll bounds
+	if a.descScroll > len(descLines)-visibleLines {
+		a.descScroll = len(descLines) - visibleLines
+	}
+	if a.descScroll < 0 {
+		a.descScroll = 0
+	}
+
+	scrollEnd := a.descScroll + visibleLines
+	if scrollEnd > len(descLines) {
+		scrollEnd = len(descLines)
+	}
+
+	titleStyle := lipgloss.NewStyle().Foreground(th.FgSecondary).Bold(true)
+	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+
+	var lines []string
+	for i := a.descScroll; i < scrollEnd; i++ {
+		prefix := "  "
+		line := prefix + contentStyle.Render(descLines[i])
+		if i == a.descScroll && a.descScroll == 0 {
+			line = "  " + titleStyle.Render("Description: ") + contentStyle.Render(descLines[i])
+		}
+		lines = append(lines, truncateOrPad(line, width))
+	}
+
+	for len(lines) < visibleLines {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+
+	// Separator
+	borderColor := th.BorderUnfocused
+	if isFocused {
+		borderColor = th.BorderFocused
+	}
+	sep := lipgloss.NewStyle().Foreground(borderColor).Render(strings.Repeat("─", width))
+	lines = append(lines, sep)
+
+	return strings.Join(lines, "\n")
+}
+
 func (a *App) renderStatusBar() string {
 	th := a.theme
 
@@ -876,9 +932,10 @@ func (a *App) renderHelp(height int) string {
 		"  ;h/;l             Focus file list / diff",
 		"  Enter             Jump to file (in file list)",
 		"",
-		"Commit List",
+		"Commit List / Description",
 		"  Tab               Cycle panel focus",
 		"  Space             Toggle commit on/off",
+		"  D                 Toggle description/commit list",
 		"",
 		"Commands",
 		"  :q / :quit        Quit",

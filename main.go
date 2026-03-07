@@ -118,6 +118,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		for _, f := range files {
 			session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 		}
+		if session.Description == "" {
+			session.Description = revisions
+		}
 		app = ui.NewApp(backend, files, session, th, highlighter, store)
 	} else {
 		app = ui.NewPickerApp(backend, th, highlighter, store)

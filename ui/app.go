@@ -79,6 +79,8 @@ type App struct {
 	enabledCommits   map[string]bool
 	includesWorkTree bool
 	commitCursor     int
+	showDescription  bool // show description instead of commit list
+	descScroll       int  // scroll offset for description panel
 
 	// UI state
 	inputMode    inputMode
@@ -243,13 +245,17 @@ func (a App) View() tea.View {
 	b.WriteString(a.renderStatusBar())
 	b.WriteString("\n")
 
-	// Commit list panel
+	// Top panel (commit list or description)
 	contentHeight := a.height - 2 // header + footer
-	clHeight := a.commitListHeight()
-	if clHeight > 0 {
-		b.WriteString(a.renderCommitList(a.width, clHeight))
+	tpHeight := a.topPanelHeight()
+	if tpHeight > 0 {
+		if a.showDescription {
+			b.WriteString(a.renderDescription(a.width, tpHeight))
+		} else {
+			b.WriteString(a.renderCommitList(a.width, tpHeight))
+		}
 		b.WriteString("\n")
-		contentHeight -= clHeight
+		contentHeight -= tpHeight
 	}
 	if contentHeight < 1 {
 		contentHeight = 1
@@ -286,7 +292,7 @@ func (a *App) fileListWidth() int {
 }
 
 func (a *App) diffViewportHeight() int {
-	h := a.height - 2 - a.commitListHeight()
+	h := a.height - 2 - a.topPanelHeight()
 	if h < 1 {
 		h = 1
 	}
@@ -332,8 +338,18 @@ func (a *App) commitListItems() []commitListEntry {
 	return items
 }
 
-// commitListHeight returns the height of the commit list panel (0 if hidden).
-func (a *App) commitListHeight() int {
+// topPanelHeight returns the height of the top panel (commit list or description, 0 if hidden).
+func (a *App) topPanelHeight() int {
+	if a.showDescription {
+		h := a.descriptionLineCount() + 1 // content + separator
+		if h > 12 {
+			h = 12
+		}
+		if h < 3 {
+			h = 3
+		}
+		return h
+	}
 	items := a.commitListItems()
 	if len(items) == 0 {
 		return 0
@@ -343,6 +359,22 @@ func (a *App) commitListHeight() int {
 		h = 8
 	}
 	return h
+}
+
+// commitListHeight returns the height of the commit list panel (0 if hidden).
+func (a *App) commitListHeight() int {
+	if a.showDescription {
+		return 0
+	}
+	return a.topPanelHeight()
+}
+
+// descriptionLineCount returns the number of wrapped lines in the description.
+func (a *App) descriptionLineCount() int {
+	if a.session == nil || a.session.Description == "" {
+		return 1
+	}
+	return len(strings.Split(a.session.Description, "\n"))
 }
 
 // mergeEnabledDiffs combines per-commit diffs for all enabled commits.
