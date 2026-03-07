@@ -8,6 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/pgavlin/crtea/model"
+	"github.com/pgavlin/crtea/output"
+	"github.com/pgavlin/crtea/persistence"
 )
 
 func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -819,10 +821,15 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	case "q!", "quit!":
 		return tea.Quit
 	case "w", "write":
-		a.setMessage("Session saved", MessageInfo)
-		a.dirty = false
+		if _, err := persistence.Save(a.session); err != nil {
+			a.setMessage("Save failed: "+err.Error(), MessageError)
+		} else {
+			a.setMessage("Session saved", MessageInfo)
+			a.dirty = false
+		}
 		return nil
 	case "x", "wq":
+		persistence.Save(a.session)
 		a.dirty = false
 		return tea.Quit
 	case "e", "reload":
@@ -836,8 +843,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		a.setMessage(fmt.Sprintf("Reloaded %d files", len(files)), MessageInfo)
 		return nil
 	case "clip", "export":
-		a.exportComments()
-		return nil
+		return a.exportComments()
 	case "clear":
 		for _, fr := range a.session.Files {
 			fr.FileComments = nil
@@ -866,13 +872,15 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	return nil
 }
 
-func (a *App) exportComments() {
+func (a *App) exportComments() tea.Cmd {
 	total := a.session.TotalComments()
 	if total == 0 {
 		a.setMessage("No comments to export", MessageWarning)
-		return
+		return nil
 	}
+	md := output.GenerateMarkdown(a.session)
 	a.setMessage(fmt.Sprintf("Exported %d comments to clipboard", total), MessageInfo)
+	return tea.SetClipboard(md)
 }
 
 // joinHorizontal joins two blocks of text side by side.

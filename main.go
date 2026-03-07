@@ -1,12 +1,14 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/pgavlin/crtea/model"
+	"github.com/pgavlin/crtea/output"
 	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/ui"
@@ -14,13 +16,17 @@ import (
 )
 
 func main() {
+	themeFlag := flag.String("theme", "", "color theme: dark or light")
+	stdoutFlag := flag.Bool("stdout", false, "export comments to stdout on exit")
+	revisions := flag.String("revisions", "", "review specific commits (e.g. main~5..HEAD)")
+	flag.Parse()
+
 	dir, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Initialize Git backend
 	backend, err := vcs.NewGitBackend(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -29,8 +35,16 @@ func main() {
 
 	info := backend.Info()
 
-	// Get diff
-	files, err := backend.GetWorkingTreeDiff()
+	var files []model.DiffFile
+	diffSource := model.DiffWorkingTree
+
+	if *revisions != "" {
+		diffSource = model.DiffCommitRange
+		ids := parseRevisions(*revisions)
+		files, err = backend.GetCommitRangeDiff(ids)
+	} else {
+		files, err = backend.GetWorkingTreeDiff()
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting diff: %v\n", err)
 		os.Exit(1)
@@ -42,20 +56,21 @@ func main() {
 	}
 
 	// Load or create session
-	session, _ := persistence.LoadLatest(info.RootPath, info.BranchName, model.DiffWorkingTree)
+	session, _ := persistence.LoadLatest(info.RootPath, info.BranchName, diffSource)
 	if session == nil {
-		session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, model.DiffWorkingTree)
+		session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 	}
 
-	// Ensure all files have review entries
 	for _, f := range files {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	// Detect theme
+	// Select theme
 	th := theme.Dark()
+	if *themeFlag == "light" {
+		th = theme.Light()
+	}
 
-	// Create and run the app
 	app := ui.NewApp(backend, files, session, th)
 	p := tea.NewProgram(&app)
 
@@ -64,6 +79,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Save session on exit if dirty
-	// (The app handles this via :w and :x commands)
+	// If --stdout, print comments as markdown
+	if *stdoutFlag && session.TotalComments() > 0 {
+		fmt.Print(output.GenerateMarkdown(session))
+	}
+}
+
+func parseRevisions(rev string) []string {
+	// Simple: just return the revision spec as a single element
+	// The git backend handles range formats like "abc..def"
+	return []string{rev}
 }
