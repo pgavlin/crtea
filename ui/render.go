@@ -866,11 +866,11 @@ func (a *App) renderCommentLine(ann annotatedLine, width int, isCursor, isFileLe
 				Foreground(th.FgDim).
 				Render(" " + badgeText + " ")
 			badgeWidth := lipgloss.Width(badge)
-			restWidth := boxWidth - 2 - badgeWidth
+			restWidth := boxWidth - 3 - badgeWidth // "├" + "─" + badge + "─"×rest + "┤"
 			if restWidth < 1 {
 				restWidth = 1
 			}
-			line := gutter + borderStyle.Render("├") + borderStyle.Render(strings.Repeat("─", 1)) + badge + borderStyle.Render(strings.Repeat("─", restWidth)+"┤")
+			line := gutter + borderStyle.Render("├") + borderStyle.Render("─") + badge + borderStyle.Render(strings.Repeat("─", restWidth)+"┤")
 			return truncateOrPad(line, width)
 		}
 
