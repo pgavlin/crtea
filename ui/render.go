@@ -114,6 +114,15 @@ func (a *App) renderFileList(width, height int) string {
 
 	for i, row := range a.fileTreeRows {
 		node := row.Node
+		isSelected := i == a.fileListCursor && a.focusedPanel == PanelFileList
+
+		// When selected, all styles get highlight background
+		bg := func(s lipgloss.Style) lipgloss.Style {
+			if isSelected {
+				return s.Background(th.BgHighlight)
+			}
+			return s
+		}
 
 		// Build tree guide prefix
 		var prefix strings.Builder
@@ -132,20 +141,18 @@ func (a *App) renderFileList(width, height int) string {
 			}
 		}
 
-		treePrefix := lipgloss.NewStyle().Foreground(th.FgDim).Render(prefix.String())
+		treePrefix := bg(lipgloss.NewStyle().Foreground(th.FgDim)).Render(prefix.String())
 
 		var line string
 		if row.IsDir {
-			// Directory node
-			dirStyle := lipgloss.NewStyle().Foreground(th.FgSecondary).Bold(true)
+			dirStyle := bg(lipgloss.NewStyle().Foreground(th.FgSecondary).Bold(true))
 			arrow := "▼ "
 			if a.collapsedDirs[node.Path] {
 				arrow = "▶ "
 			}
-			arrowStyle := lipgloss.NewStyle().Foreground(th.FgDim)
-			line = " " + treePrefix + arrowStyle.Render(arrow) + dirStyle.Render(node.Name+"/")
+			arrowStyle := bg(lipgloss.NewStyle().Foreground(th.FgDim))
+			line = bg(lipgloss.NewStyle()).Render(" ") + treePrefix + arrowStyle.Render(arrow) + dirStyle.Render(node.Name+"/")
 		} else {
-			// File node
 			fileIdx := node.FileIdx
 			file := a.diffFiles[fileIdx]
 			path := file.DisplayPath()
@@ -160,34 +167,31 @@ func (a *App) renderFileList(width, height int) string {
 				statusColor = th.FileRenamed
 			}
 
-			statusStyle := lipgloss.NewStyle().Foreground(statusColor)
+			statusStyle := bg(lipgloss.NewStyle().Foreground(statusColor))
 
-			// Review marker
-			marker := " "
+			marker := bg(lipgloss.NewStyle()).Render(" ")
 			if fr := a.session.GetFileReview(path); fr != nil && fr.Reviewed {
-				marker = lipgloss.NewStyle().Foreground(th.Reviewed).Render("✓")
+				marker = bg(lipgloss.NewStyle().Foreground(th.Reviewed)).Render("✓")
 			}
 
-			// Comment count
 			commentCount := ""
 			if fr := a.session.GetFileReview(path); fr != nil && fr.HasComments() {
 				total := len(fr.FileComments)
 				for _, cs := range fr.LineComments {
 					total += len(cs)
 				}
-				commentCount = lipgloss.NewStyle().Foreground(th.CommentNote).Render(fmt.Sprintf(" (%d)", total))
+				commentCount = bg(lipgloss.NewStyle().Foreground(th.CommentNote)).Render(fmt.Sprintf(" (%d)", total))
 			}
 
-			nameStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
-			line = " " + treePrefix + marker + statusStyle.Render(file.Status.String()) + " " + nameStyle.Render(node.Name) + commentCount
+			nameStyle := bg(lipgloss.NewStyle().Foreground(th.FgPrimary))
+			line = bg(lipgloss.NewStyle()).Render(" ") + treePrefix + marker + statusStyle.Render(file.Status.String()) + bg(lipgloss.NewStyle()).Render(" ") + nameStyle.Render(node.Name) + commentCount
 		}
 
-		if i == a.fileListCursor && a.focusedPanel == PanelFileList {
-			line = lipgloss.NewStyle().
-				Background(th.BgHighlight).
-				Render(truncateOrPad(line, width-2))
-		} else {
-			line = truncateOrPad(line, width-2)
+		lineWidth := width - 2
+		w := lipgloss.Width(line)
+		pad := lineWidth - w
+		if pad > 0 {
+			line = line + bg(lipgloss.NewStyle()).Render(strings.Repeat(" ", pad))
 		}
 
 		lines = append(lines, line)
