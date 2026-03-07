@@ -37,6 +37,10 @@ type annotatedLine struct {
 	CommentLines int // total display lines for this comment
 	Side         model.LineSide
 	gapID        gapID // set for annExpander and annExpandedContext
+
+	// Thread rendering hints
+	IsReply        bool // this comment is a reply (has ReplyToID)
+	HasReplyAfter  bool // the next comment is a reply to this one's thread
 }
 
 // gapID identifies a gap between hunks for context expansion.
@@ -182,19 +186,29 @@ func buildAnnotations(files []model.DiffFile, session *model.ReviewSession, expa
 								if comments[ci].Side != side {
 									continue
 								}
+								isReply := comments[ci].ReplyToID != ""
+								hasReplyAfter := false
+								for nci := ci + 1; nci < len(comments); nci++ {
+									if comments[nci].Side == side {
+										hasReplyAfter = comments[nci].ReplyToID != ""
+										break
+									}
+								}
 								total := commentDisplayLines(&comments[ci], commentWrapWidth)
 								for cl := range total {
 									annotations = append(annotations, annotatedLine{
-										Type:         annLineComment,
-										FileIdx:      fi,
-										HunkIdx:      hi,
-										LineIdx:      li,
-										OldLineNo:    line.OldLineNo,
-										NewLineNo:    line.NewLineNo,
-										CommentIdx:   ci,
-										CommentLine:  cl,
-										CommentLines: total,
-										Side:         side,
+										Type:          annLineComment,
+										FileIdx:       fi,
+										HunkIdx:       hi,
+										LineIdx:       li,
+										OldLineNo:     line.OldLineNo,
+										NewLineNo:     line.NewLineNo,
+										CommentIdx:    ci,
+										CommentLine:   cl,
+										CommentLines:  total,
+										Side:          side,
+										IsReply:       isReply,
+										HasReplyAfter: hasReplyAfter,
 									})
 								}
 							}

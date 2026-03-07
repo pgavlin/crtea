@@ -204,7 +204,11 @@ func gitOutput(dir string, args ...string) (string, error) {
 	return string(out), nil
 }
 
-// parseDiff parses unified diff output into DiffFile structs.
+// ParseDiff parses unified diff output into DiffFile structs.
+func ParseDiff(input string) []model.DiffFile {
+	return parseDiff(input)
+}
+
 func parseDiff(input string) []model.DiffFile {
 	var files []model.DiffFile
 	var currentFile *model.DiffFile

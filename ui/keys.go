@@ -11,6 +11,8 @@ import (
 	"github.com/pgavlin/crtea/bugreport"
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/output"
+	"github.com/pgavlin/crtea/provider"
+	"github.com/pgavlin/crtea/vcs"
 )
 
 func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -158,6 +160,8 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.enterFileComment()
 	case key.Code == 'i' && key.Mod == 0:
 		a.editCommentAtCursor()
+	case key.Code == 'a' && key.Mod == 0:
+		a.replyToCommentAtCursor()
 
 	// Pending sequences
 	case key.Code == 'd' && key.Mod == 0:
@@ -181,6 +185,13 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Text == "D":
 		if a.commitListItems() != nil || a.showDescription || (a.session != nil && a.session.Description != "") {
 			a.showDescription = !a.showDescription
+			a.showConversation = false
+			a.descScroll = 0
+		}
+	case key.Text == "P":
+		if a.session != nil && len(a.session.Conversation) > 0 {
+			a.showConversation = !a.showConversation
+			a.showDescription = false
 			a.descScroll = 0
 		}
 
@@ -339,9 +350,16 @@ func (a App) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Code == 'y', key.Code == 'Y':
 		a.inputMode = modeNormal
-		// Execute confirmed action
+		if a.confirmCallback != nil {
+			cb := a.confirmCallback
+			a.confirmCallback = nil
+			a.confirmPrompt = ""
+			return &a, cb(&a)
+		}
 	case key.Code == tea.KeyEscape, key.Code == 'n', key.Code == 'N':
 		a.inputMode = modeNormal
+		a.confirmCallback = nil
+		a.confirmPrompt = ""
 	}
 	return &a, nil
 }
@@ -682,6 +700,11 @@ func (a *App) enterFileComment() {
 	a.inputMode = modeComment
 }
 
+// isOthersComment returns true if the comment belongs to another user.
+func (a *App) isOthersComment(c *model.Comment) bool {
+	return c.Author != "" && a.session != nil && a.session.Reviewer != "" && c.Author != a.session.Reviewer
+}
+
 func (a *App) editCommentAtCursor() {
 	if a.cursorLine < 0 || a.cursorLine >= len(a.annotations) {
 		return
@@ -700,6 +723,10 @@ func (a *App) editCommentAtCursor() {
 	case annFileComment:
 		if ann.CommentIdx < len(fr.FileComments) {
 			c := fr.FileComments[ann.CommentIdx]
+			if a.isOthersComment(&c) {
+				a.setMessage("Cannot edit others' comments", messageWarning)
+				return
+			}
 			a.commentBuffer = c.Content
 			a.commentCursor = len(c.Content)
 			a.commentType = c.Type
@@ -711,6 +738,10 @@ func (a *App) editCommentAtCursor() {
 		lineNo := a.getCommentLineNo(ann)
 		if comments, ok := fr.LineComments[lineNo]; ok && ann.CommentIdx < len(comments) {
 			c := comments[ann.CommentIdx]
+			if a.isOthersComment(&c) {
+				a.setMessage("Cannot edit others' comments", messageWarning)
+				return
+			}
 			a.commentBuffer = c.Content
 			a.commentCursor = len(c.Content)
 			a.commentType = c.Type
@@ -723,6 +754,57 @@ func (a *App) editCommentAtCursor() {
 	default:
 		a.setMessage("Move cursor to a comment to edit", messageWarning)
 	}
+}
+
+func (a *App) replyToCommentAtCursor() {
+	if a.cursorLine < 0 || a.cursorLine >= len(a.annotations) {
+		return
+	}
+	ann := a.annotations[a.cursorLine]
+	path := a.currentFilePath()
+	if path == "" {
+		return
+	}
+	fr := a.session.GetFileReview(path)
+	if fr == nil {
+		return
+	}
+
+	var comment *model.Comment
+	var lineNo int
+	var side model.LineSide
+	switch ann.Type {
+	case annLineComment:
+		lineNo = a.getCommentLineNo(ann)
+		if comments, ok := fr.LineComments[lineNo]; ok && ann.CommentIdx < len(comments) {
+			comment = &comments[ann.CommentIdx]
+			side = comment.Side
+		}
+	default:
+		a.setMessage("Move cursor to a comment to reply", messageWarning)
+		return
+	}
+
+	if comment == nil {
+		return
+	}
+
+	// Determine the thread root ExternalID
+	replyTo := comment.ExternalID
+	if replyTo == "" {
+		a.setMessage("Can only reply to remote comments", messageWarning)
+		return
+	}
+
+	a.replyToID = replyTo
+	a.commentBuffer = ""
+	a.commentCursor = 0
+	a.commentType = model.CommentNote
+	a.commentIsFile = false
+	a.commentLine = lineNo
+	a.commentSide = side
+	a.editingID = ""
+	a.inputMode = modeComment
 }
 
 func (a *App) getCommentLineNo(ann annotatedLine) int {
@@ -783,6 +865,12 @@ func (a *App) saveComment() {
 		} else {
 			comment = model.NewComment(a.commentBuffer, a.commentType, a.commentSide)
 		}
+		if a.replyToID != "" {
+			comment.ReplyToID = a.replyToID
+		}
+		if a.session != nil && a.session.Reviewer != "" {
+			comment.Author = a.session.Reviewer
+		}
 
 		if a.commentIsFile {
 			fr.AddFileComment(comment)
@@ -794,6 +882,7 @@ func (a *App) saveComment() {
 	a.dirty = true
 	a.commentBuffer = ""
 	a.editingID = ""
+	a.replyToID = ""
 	a.commentLineRange = nil
 	a.rebuildAnnotations()
 }
@@ -815,6 +904,11 @@ func (a *App) deleteCommentAtCursor() {
 	switch ann.Type {
 	case annFileComment:
 		if ann.CommentIdx < len(fr.FileComments) {
+			c := fr.FileComments[ann.CommentIdx]
+			if a.isOthersComment(&c) {
+				a.setMessage("Cannot delete others' comments", messageWarning)
+				return
+			}
 			fr.FileComments = append(fr.FileComments[:ann.CommentIdx], fr.FileComments[ann.CommentIdx+1:]...)
 			a.dirty = true
 			a.rebuildAnnotations()
@@ -823,6 +917,11 @@ func (a *App) deleteCommentAtCursor() {
 	case annLineComment:
 		lineNo := a.getCommentLineNo(ann)
 		if comments, ok := fr.LineComments[lineNo]; ok && ann.CommentIdx < len(comments) {
+			c := comments[ann.CommentIdx]
+			if a.isOthersComment(&c) {
+				a.setMessage("Cannot delete others' comments", messageWarning)
+				return
+			}
 			fr.LineComments[lineNo] = append(comments[:ann.CommentIdx], comments[ann.CommentIdx+1:]...)
 			if len(fr.LineComments[lineNo]) == 0 {
 				delete(fr.LineComments, lineNo)
@@ -933,6 +1032,33 @@ func (a App) handleReviewKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (a *App) saveOverallReview() {
 	body := strings.TrimSpace(a.reviewBuffer)
+
+	if a.conversationMode {
+		a.conversationMode = false
+		if body == "" {
+			a.reviewBuffer = ""
+			return
+		}
+		if a.provider != nil {
+			if err := a.provider.PostConversationComment(a.providerID, body); err != nil {
+				a.setMessage("Post failed: "+err.Error(), messageError)
+				a.reviewBuffer = ""
+				return
+			}
+		}
+		// Add locally too
+		cc := model.ConversationComment{
+			Author:    a.session.Reviewer,
+			Body:      body,
+			CreatedAt: time.Now(),
+		}
+		a.session.Conversation = append(a.session.Conversation, cc)
+		a.dirty = true
+		a.reviewBuffer = ""
+		a.setMessage("Comment posted", messageInfo)
+		return
+	}
+
 	if body == "" && a.reviewStatus == model.ApprovalNeutral {
 		a.session.OverallReview = nil
 	} else {
@@ -1133,6 +1259,12 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		return nil
 	case "clip", "export":
 		return a.exportComments()
+	case "submit":
+		return a.submitToProvider()
+	case "refresh":
+		return a.refreshFromProvider()
+	case "comment":
+		return a.postConversationComment()
 	case "clear":
 		for _, fr := range a.session.Files {
 			fr.FileComments = nil
@@ -1159,6 +1291,150 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	}
 
 	a.setMessage("Unknown command: "+cmd, messageWarning)
+	return nil
+}
+
+func (a *App) postConversationComment() tea.Cmd {
+	if a.provider == nil {
+		a.setMessage("Not connected to a remote provider", messageWarning)
+		return nil
+	}
+	a.conversationMode = true
+	a.reviewBuffer = ""
+	a.reviewCursor = 0
+	a.reviewStatus = model.ApprovalNeutral
+	a.inputMode = modeReview
+	return nil
+}
+
+func (a *App) submitToProvider() tea.Cmd {
+	if a.provider == nil {
+		a.setMessage("Not connected to a remote provider", messageWarning)
+		return nil
+	}
+
+	drafts := provider.ExportComments(a.session, a.session.Reviewer)
+	state := provider.ExportReviewState(model.ApprovalNeutral)
+	body := ""
+	if a.session.OverallReview != nil {
+		state = provider.ExportReviewState(a.session.OverallReview.Status)
+		body = a.session.OverallReview.Body
+	}
+
+	statusText := "Comment"
+	switch state {
+	case provider.ReviewApprove:
+		statusText = "Approve"
+	case provider.ReviewRequestChanges:
+		statusText = "Request Changes"
+	}
+
+	prompt := fmt.Sprintf("Submit review to %s #%s? (%s, %d comments)",
+		a.session.Provider.Name, a.session.Provider.ID, statusText, len(drafts))
+
+	a.confirmPrompt = prompt
+	a.confirmCallback = func(a *App) tea.Cmd {
+		req := provider.SubmitReviewRequest{
+			Body:     body,
+			State:    state,
+			Comments: drafts,
+		}
+		if err := a.provider.SubmitReview(a.providerID, req); err != nil {
+			a.setMessage("Submit failed: "+err.Error(), messageError)
+			return nil
+		}
+
+		// Mark comments as submitted
+		for _, fr := range a.session.Files {
+			for line, comments := range fr.LineComments {
+				for i := range comments {
+					if comments[i].Author == "" || comments[i].Author == a.session.Reviewer {
+						if comments[i].ExternalID == "" {
+							comments[i].Submitted = true
+						}
+					}
+				}
+				fr.LineComments[line] = comments
+			}
+		}
+
+		// Auto-save
+		a.store.Save(a.session)
+		a.dirty = false
+		a.setMessage(fmt.Sprintf("Review submitted to %s #%s", a.session.Provider.Name, a.session.Provider.ID), messageInfo)
+		return nil
+	}
+	a.inputMode = modeConfirm
+	return nil
+}
+
+func (a *App) refreshFromProvider() tea.Cmd {
+	if a.provider == nil {
+		a.setMessage("Not connected to a remote provider", messageWarning)
+		return nil
+	}
+
+	result, err := a.provider.Refresh(a.providerID)
+	if err != nil {
+		a.setMessage("Refresh failed: "+err.Error(), messageError)
+		return nil
+	}
+
+	newCount := 0
+
+	// Import new reviews
+	if len(result.NewReviews) > 0 {
+		for _, r := range result.NewReviews {
+			a.session.Reviews = append(a.session.Reviews, provider.ImportReview(r))
+		}
+		newCount += len(result.NewReviews)
+	}
+
+	// Import new comments
+	if len(result.NewComments) > 0 {
+		imported := provider.ImportComments(result.NewComments)
+		for path, lineComments := range imported {
+			fr := a.session.GetOrCreateFileReview(path, model.FileModified)
+			for line, cs := range lineComments {
+				for _, c := range cs {
+					found := false
+					for _, existing := range fr.LineComments[line] {
+						if existing.ExternalID == c.ExternalID {
+							found = true
+							break
+						}
+					}
+					if !found {
+						fr.AddLineComment(line, c)
+						newCount++
+					}
+				}
+			}
+		}
+	}
+
+	// Import new conversation
+	if len(result.NewConversation) > 0 {
+		a.session.Conversation = append(a.session.Conversation, provider.ImportConversation(result.NewConversation)...)
+		newCount += len(result.NewConversation)
+	}
+
+	// Re-parse diff if changed
+	if result.DiffChanged && result.Diff != "" {
+		files := vcs.ParseDiff(result.Diff)
+		if a.highlighter != nil {
+			a.highlighter.HighlightFiles(files)
+		}
+		a.diffFiles = files
+		for _, f := range files {
+			a.session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
+		}
+		a.rebuildFileTree()
+	}
+
+	a.rebuildAnnotations()
+	a.store.Save(a.session)
+	a.setMessage(fmt.Sprintf("Refreshed: %d new items", newCount), messageInfo)
 	return nil
 }
 

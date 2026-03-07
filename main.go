@@ -13,6 +13,7 @@ import (
 
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/persistence"
+	"github.com/pgavlin/crtea/provider"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/ui"
@@ -69,6 +70,11 @@ func main() {
 				Aliases: []string{"r"},
 				Usage:   "review specific commits (e.g. main~5..HEAD)",
 			},
+			&cli.StringFlag{
+				Name:    "pr",
+				Aliases: []string{"p"},
+				Usage:   "review a pull/merge request (e.g. 123)",
+			},
 		},
 		Action: run,
 	}
@@ -100,7 +106,12 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	highlighter := syntax.NewHighlighter(chromaStyle)
 
 	var app ui.App
-	if revisions := cmd.String("revisions"); revisions != "" {
+	if prID := cmd.String("pr"); prID != "" {
+		app, err = runWithProvider(backend, nil, prID, th, highlighter, store)
+		if err != nil {
+			return err
+		}
+	} else if revisions := cmd.String("revisions"); revisions != "" {
 		info := backend.Info()
 
 		// Get commits in the range
@@ -215,6 +226,100 @@ func rangeIncludesHead(revSpec string) bool {
 		return false
 	}
 	return resolved == strings.TrimSpace(string(out2))
+}
+
+// runWithProvider sets up the app using a remote provider.
+// If p is nil, this returns an error (no provider configured yet).
+func runWithProvider(backend vcs.Backend, p provider.Provider, id string, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) (ui.App, error) {
+	if p == nil {
+		return ui.App{}, fmt.Errorf("no provider configured for --pr flag (provider support not yet available)")
+	}
+
+	info := backend.Info()
+
+	// Fetch review request metadata
+	rr, err := p.GetReviewRequest(id)
+	if err != nil {
+		return ui.App{}, fmt.Errorf("fetching review request: %w", err)
+	}
+
+	// Fetch diff
+	diffText, err := p.GetDiff(id)
+	if err != nil {
+		return ui.App{}, fmt.Errorf("fetching diff: %w", err)
+	}
+
+	files := vcs.ParseDiff(diffText)
+	if len(files) == 0 {
+		return ui.App{}, fmt.Errorf("no changes to review")
+	}
+	hl.HighlightFiles(files)
+
+	// Session
+	diffSource := model.DiffPullRequest
+	session, _ := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
+	if session == nil {
+		session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
+	}
+	session.Provider = &model.ProviderInfo{
+		Name: p.Name(),
+		ID:   id,
+		URL:  rr.URL,
+	}
+	if session.Description == "" {
+		session.Description = rr.Title
+		if rr.Body != "" {
+			session.Description += "\n\n" + rr.Body
+		}
+	}
+	for _, f := range files {
+		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
+	}
+
+	// Fetch authenticated user
+	if user, err := p.GetAuthenticatedUser(); err == nil {
+		session.Reviewer = user
+	}
+
+	// Fetch existing reviews
+	if reviews, err := p.ListReviews(id); err == nil {
+		session.Reviews = make([]model.OverallReview, len(reviews))
+		for i, r := range reviews {
+			session.Reviews[i] = provider.ImportReview(r)
+		}
+	}
+
+	// Fetch existing inline comments
+	if comments, err := p.ListComments(id); err == nil {
+		imported := provider.ImportComments(comments)
+		for path, lineComments := range imported {
+			fr := session.GetOrCreateFileReview(path, model.FileModified)
+			for line, cs := range lineComments {
+				for _, c := range cs {
+					// Skip if already imported (by ExternalID)
+					found := false
+					for _, existing := range fr.LineComments[line] {
+						if existing.ExternalID == c.ExternalID {
+							found = true
+							break
+						}
+					}
+					if !found {
+						fr.AddLineComment(line, c)
+					}
+				}
+			}
+		}
+	}
+
+	// Fetch conversation
+	if convComments, err := p.ListConversation(id); err == nil {
+		session.Conversation = provider.ImportConversation(convComments)
+	}
+
+	app := ui.NewApp(backend, files, session, th, hl, store)
+	app.SetProvider(p, id)
+	return app, nil
 }
 
 func selectTheme(name string) (theme.Theme, string) {

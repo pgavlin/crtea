@@ -9,6 +9,7 @@ import (
 
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/persistence"
+	"github.com/pgavlin/crtea/provider"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/vcs"
@@ -82,6 +83,7 @@ type App struct {
 	includesWorkTree bool
 	commitCursor     int
 	showDescription  bool // show description instead of commit list
+	showConversation bool // show conversation panel
 	descScroll       int  // scroll offset for description panel
 
 	// UI state
@@ -124,14 +126,22 @@ type App struct {
 	visualAnchorSide model.LineSide
 	commentLineRange *model.LineRange
 
+	// Reply tracking
+	replyToID string // ExternalID of comment being replied to
+
 	// Overall review editor
-	reviewBuffer string
-	reviewCursor int
-	reviewStatus model.ApprovalStatus
+	reviewBuffer       string
+	reviewCursor       int
+	reviewStatus       model.ApprovalStatus
+	conversationMode   bool // true when review editor is for conversation comment
 
 	// Bug report editor
 	bugBuffer string
 	bugCursor int
+
+	// Confirm dialog
+	confirmPrompt   string
+	confirmCallback func(a *App) tea.Cmd
 
 	// Messages
 	message    *statusMessage
@@ -147,6 +157,10 @@ type App struct {
 
 	// Theme
 	theme theme.Theme
+
+	// Remote provider (nil for local-only reviews)
+	provider   provider.Provider
+	providerID string // opaque ID for the review request
 }
 
 // NewApp creates a new App model.
@@ -252,6 +266,12 @@ func (a *App) commentWrapWidth() int {
 	return w
 }
 
+// SetProvider sets the remote provider and review request ID.
+func (a *App) SetProvider(p provider.Provider, id string) {
+	a.provider = p
+	a.providerID = id
+}
+
 // Init implements tea.Model.
 func (a App) Init() tea.Cmd {
 	return nil
@@ -296,7 +316,9 @@ func (a App) View() tea.View {
 	contentHeight := a.height - 2 // header + footer
 	tpHeight := a.topPanelHeight()
 	if tpHeight > 0 {
-		if a.showDescription {
+		if a.showConversation {
+			b.WriteString(a.renderConversation(a.width, tpHeight))
+		} else if a.showDescription {
 			b.WriteString(a.renderDescription(a.width, tpHeight))
 		} else {
 			b.WriteString(a.renderCommitList(a.width, tpHeight))
@@ -436,8 +458,18 @@ func (a *App) commitListItems() []commitListEntry {
 	return items
 }
 
-// topPanelHeight returns the height of the top panel (commit list or description, 0 if hidden).
+// topPanelHeight returns the height of the top panel (commit list, description, or conversation, 0 if hidden).
 func (a *App) topPanelHeight() int {
+	if a.showConversation {
+		h := len(a.session.Conversation)*2 + 1 // 2 lines per comment + separator
+		if h > 12 {
+			h = 12
+		}
+		if h < 3 {
+			h = 3
+		}
+		return h
+	}
 	if a.showDescription {
 		h := a.descriptionLineCount() + 1 // content + separator
 		if h > 12 {

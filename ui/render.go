@@ -159,6 +159,54 @@ func (a *App) renderDescription(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (a *App) renderConversation(width, height int) string {
+	th := a.theme
+	visibleLines := height - 1 // last line is separator
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+
+	authorStyle := lipgloss.NewStyle().Foreground(th.BranchName).Bold(true)
+	bodyStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+	timeStyle := lipgloss.NewStyle().Foreground(th.FgDim)
+
+	var contentLines []string
+	for _, cc := range a.session.Conversation {
+		header := "  " + authorStyle.Render("@"+cc.Author)
+		if !cc.CreatedAt.IsZero() {
+			header += " " + timeStyle.Render(cc.CreatedAt.Format("Jan 2 15:04"))
+		}
+		contentLines = append(contentLines, truncateOrPad(header, width))
+		for _, bodyLine := range strings.Split(cc.Body, "\n") {
+			contentLines = append(contentLines, truncateOrPad("    "+bodyStyle.Render(bodyLine), width))
+		}
+	}
+
+	// Scroll
+	if a.descScroll > len(contentLines)-visibleLines {
+		a.descScroll = len(contentLines) - visibleLines
+	}
+	if a.descScroll < 0 {
+		a.descScroll = 0
+	}
+	scrollEnd := a.descScroll + visibleLines
+	if scrollEnd > len(contentLines) {
+		scrollEnd = len(contentLines)
+	}
+
+	var lines []string
+	for i := a.descScroll; i < scrollEnd; i++ {
+		lines = append(lines, contentLines[i])
+	}
+	for len(lines) < visibleLines {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+
+	sep := lipgloss.NewStyle().Foreground(th.BorderUnfocused).Render(strings.Repeat("─", width))
+	lines = append(lines, sep)
+	return strings.Join(lines, "\n")
+}
+
 func (a *App) renderStatusBar() string {
 	th := a.theme
 
@@ -172,7 +220,23 @@ func (a *App) renderStatusBar() string {
 		Background(th.StatusBarBg).
 		Bold(true)
 
-	left := fmt.Sprintf(" [%s:%s] ", a.vcsInfo.VcsType, branchStyle.Render(a.vcsInfo.BranchName))
+	var left string
+	if a.session != nil && a.session.Provider != nil {
+		pi := a.session.Provider
+		label := fmt.Sprintf(" [%s:%s] %s #%s", a.vcsInfo.VcsType, branchStyle.Render(a.vcsInfo.BranchName), pi.Name, pi.ID)
+		if a.session.Description != "" {
+			// Show just the first line of the description (title)
+			title := strings.SplitN(a.session.Description, "\n", 2)[0]
+			maxTitle := a.width / 2
+			if len([]rune(title)) > maxTitle {
+				title = string([]rune(title)[:maxTitle-1]) + "…"
+			}
+			label += ": " + title
+		}
+		left = label + " "
+	} else {
+		left = fmt.Sprintf(" [%s:%s] ", a.vcsInfo.VcsType, branchStyle.Render(a.vcsInfo.BranchName))
+	}
 
 	// Right: review progress
 	reviewed := a.session.ReviewedCount()
@@ -203,11 +267,21 @@ func (a *App) renderFooter() string {
 	case modeSearch:
 		content = "/" + a.searchBuffer + "█"
 	case modeComment:
-		content = " Enter: save | Esc: cancel | Tab: cycle type | Shift-Enter: newline"
+		if a.replyToID != "" {
+			content = " Reply | Enter: save | Esc: cancel | Shift-Enter: newline"
+		} else {
+			content = " Enter: save | Esc: cancel | Tab: cycle type | Shift-Enter: newline"
+		}
 	case modeReview:
-		content = " Enter: save | Esc: cancel | Tab: cycle status | Shift-Enter: newline"
+		if a.conversationMode {
+			content = " Conversation | Enter: post | Esc: cancel | Shift-Enter: newline"
+		} else {
+			content = " Enter: save | Esc: cancel | Tab: cycle status | Shift-Enter: newline"
+		}
 	case modeBug:
 		content = " Enter: submit | Esc: cancel | Shift-Enter: newline"
+	case modeConfirm:
+		content = " " + a.confirmPrompt + " [y/n]"
 	case modeVisualSelect:
 		modeStyle := lipgloss.NewStyle().
 			Background(th.ModeBg).
@@ -771,14 +845,49 @@ func (a *App) renderCommentLine(ann annotatedLine, width int, isCursor, isFileLe
 	isFirst := ann.CommentLine == 0
 	isLast := ann.CommentLine == ann.CommentLines-1
 
+	// Determine if this is a remote comment from someone else
+	isRemote := comment.Author != "" && a.session != nil && comment.Author != a.session.Reviewer
+
+	if isRemote {
+		contentStyle = lipgloss.NewStyle().Foreground(th.FgDim)
+		if isCursor {
+			contentStyle = contentStyle.Background(th.BgHighlight)
+		}
+	}
+
 	if isFirst {
-		// Top border + type badge
+		if ann.IsReply {
+			// Thread separator instead of full top border
+			badgeText := "@" + comment.Author
+			if comment.Author == "" {
+				badgeText = "Reply"
+			}
+			badge := lipgloss.NewStyle().
+				Foreground(th.FgDim).
+				Render(" " + badgeText + " ")
+			badgeWidth := lipgloss.Width(badge)
+			restWidth := boxWidth - 2 - badgeWidth
+			if restWidth < 1 {
+				restWidth = 1
+			}
+			line := gutter + borderStyle.Render("├") + borderStyle.Render(strings.Repeat("─", 1)) + badge + borderStyle.Render(strings.Repeat("─", restWidth)+"┤")
+			return truncateOrPad(line, width)
+		}
+
+		// Top border + type badge (with optional author)
+		badgeText := comment.Type.String()
+		if comment.Author != "" {
+			badgeText += " (@" + comment.Author + ")"
+		}
+		if comment.IsOutdated {
+			badgeText += " [outdated]"
+		}
 		typeBadge := lipgloss.NewStyle().
 			Background(typeColor).
 			Foreground(th.ModeFg).
 			Bold(true).
 			Padding(0, 1).
-			Render(comment.Type.String())
+			Render(badgeText)
 
 		badgeWidth := lipgloss.Width(typeBadge)
 		restWidth := boxWidth - 2 - badgeWidth // "╭" + badge + "───╮"
@@ -790,6 +899,10 @@ func (a *App) renderCommentLine(ann annotatedLine, width int, isCursor, isFileLe
 	}
 
 	if isLast && ann.CommentLine > 0 {
+		if ann.HasReplyAfter {
+			// No bottom border — next comment continues the thread
+			return ""
+		}
 		// Bottom border
 		line := gutter + borderStyle.Render("╰"+strings.Repeat("─", boxWidth-2)+"╯")
 		return truncateOrPad(line, width)
@@ -1089,6 +1202,7 @@ func (a *App) renderHelp(height int) string {
 		"  c                 Add line comment",
 		"  C                 Add file comment",
 		"  i                 Edit comment at cursor",
+		"  a                 Reply to comment at cursor",
 		"  dd                Delete comment at cursor",
 		"  v                 Visual select lines",
 		"  R                 Overall review",
@@ -1103,6 +1217,7 @@ func (a *App) renderHelp(height int) string {
 		"  Tab               Cycle panel focus",
 		"  Space             Toggle commit on/off",
 		"  D                 Toggle description/commit list",
+		"  P                 Toggle conversation panel",
 		"",
 		"Commands",
 		"  :q / :quit        Quit",
@@ -1113,6 +1228,9 @@ func (a *App) renderHelp(height int) string {
 		"  :clip / :export   Export comments to clipboard",
 		"  :review           Open overall review",
 		"  :bug              File a bug report",
+		"  :submit           Submit review to remote",
+		"  :refresh          Refresh from remote",
+		"  :comment          Post conversation comment",
 		"  :clear            Clear all comments",
 		"",
 		"Search",

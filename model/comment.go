@@ -56,12 +56,17 @@ type LineRange struct {
 
 // Comment represents a review comment.
 type Comment struct {
-	ID        string      `json:"id"`
-	Content   string      `json:"content"`
-	Type      CommentType `json:"type"`
-	CreatedAt time.Time   `json:"created_at"`
-	Side      LineSide    `json:"side,omitempty"`
-	LineRange *LineRange  `json:"line_range,omitempty"`
+	ID         string      `json:"id"`
+	Content    string      `json:"content"`
+	Type       CommentType `json:"type"`
+	CreatedAt  time.Time   `json:"created_at"`
+	Side       LineSide    `json:"side,omitempty"`
+	LineRange  *LineRange  `json:"line_range,omitempty"`
+	Author     string      `json:"author,omitempty"`
+	ExternalID string      `json:"external_id,omitempty"`
+	ReplyToID  string      `json:"reply_to_id,omitempty"`
+	Submitted  bool        `json:"submitted,omitempty"`
+	IsOutdated bool        `json:"is_outdated,omitempty"`
 }
 
 // NewComment creates a new comment.

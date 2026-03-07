@@ -72,8 +72,10 @@ func (s ApprovalStatus) Next() ApprovalStatus {
 
 // OverallReview captures high-level review thoughts with an approval status.
 type OverallReview struct {
-	Body   string         `json:"body"`
-	Status ApprovalStatus `json:"status"`
+	Body       string         `json:"body"`
+	Status     ApprovalStatus `json:"status"`
+	Author     string         `json:"author,omitempty"`
+	ExternalID string         `json:"external_id,omitempty"`
 }
 
 // DiffSource describes what is being diffed.
@@ -82,7 +84,23 @@ type DiffSource int
 const (
 	DiffWorkingTree DiffSource = iota
 	DiffCommitRange
+	DiffPullRequest
 )
+
+// ProviderInfo identifies a remote code review provider and request.
+type ProviderInfo struct {
+	Name string `json:"name"`          // "github", "gitlab", etc.
+	ID   string `json:"id"`            // "123" for PR #123
+	URL  string `json:"url,omitempty"` // web URL
+}
+
+// ConversationComment is a general comment not tied to code.
+type ConversationComment struct {
+	ExternalID string    `json:"external_id,omitempty"`
+	Author     string    `json:"author,omitempty"`
+	Body       string    `json:"body"`
+	CreatedAt  time.Time `json:"created_at"`
+}
 
 // ReviewSession persists the review state.
 type ReviewSession struct {
@@ -98,6 +116,12 @@ type ReviewSession struct {
 	UpdatedAt   time.Time              `json:"updated_at"`
 	Files         map[string]*FileReview `json:"files"`
 	OverallReview *OverallReview          `json:"overall_review,omitempty"`
+
+	// Remote provider fields
+	Provider     *ProviderInfo        `json:"provider,omitempty"`
+	Reviewer     string               `json:"reviewer,omitempty"`
+	Reviews      []OverallReview      `json:"reviews,omitempty"`
+	Conversation []ConversationComment `json:"conversation,omitempty"`
 }
 
 // NewSession creates a new review session.
