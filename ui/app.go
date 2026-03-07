@@ -67,7 +67,8 @@ type App struct {
 	vcs         vcs.Backend
 	vcsInfo     vcs.VcsInfo
 	session     *model.ReviewSession
-	diffFiles   []model.DiffFile
+	diffFiles         []model.DiffFile
+	combinedDiffFiles []model.DiffFile // original combined diff (from provider), used when all commits enabled
 	highlighter *syntax.Highlighter
 
 	// Phase
@@ -285,7 +286,10 @@ func (a *App) SetCommits(commits []vcs.CommitInfo, diffs map[string][]model.Diff
 	for _, c := range commits {
 		a.enabledCommits[c.ID] = true
 	}
-	a.rebuildFromCommits()
+	// Save the current combined diff (from provider) for use when all commits are enabled.
+	// mergeEnabledDiffs naively appends hunks and breaks when multiple commits touch the same file.
+	a.combinedDiffFiles = a.diffFiles
+	// Don't rebuild — all commits are enabled so the combined diff is already correct.
 }
 
 // Init implements tea.Model.
@@ -576,9 +580,26 @@ func (a *App) mergeEnabledDiffs() []model.DiffFile {
 	return result
 }
 
+// allCommitsEnabled returns true if every commit (and worktree, if present) is enabled.
+func (a *App) allCommitsEnabled() bool {
+	for _, c := range a.reviewCommits {
+		if !a.enabledCommits[c.ID] {
+			return false
+		}
+	}
+	if _, ok := a.commitDiffs[worktreeKey]; ok && !a.enabledCommits[worktreeKey] {
+		return false
+	}
+	return true
+}
+
 // rebuildFromCommits merges enabled diffs and rebuilds the view.
 func (a *App) rebuildFromCommits() {
-	a.diffFiles = a.mergeEnabledDiffs()
+	if a.combinedDiffFiles != nil && a.allCommitsEnabled() {
+		a.diffFiles = a.combinedDiffFiles
+	} else {
+		a.diffFiles = a.mergeEnabledDiffs()
+	}
 	if a.session != nil {
 		for _, f := range a.diffFiles {
 			a.session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
