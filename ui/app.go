@@ -54,8 +54,10 @@ type statusMessage struct {
 
 // DoneMsg is emitted when the component wants to close.
 // Session contains the final review state (nil if no review was started).
+// Err is set if the component encountered a fatal error (e.g. provider loading failed).
 type DoneMsg struct {
 	Session *model.ReviewSession
+	Err     error
 }
 
 // ClipboardMsg is emitted when the component wants to copy text to the clipboard.
@@ -174,6 +176,10 @@ type App struct {
 	// Remote provider (nil for local-only reviews)
 	provider   provider.Provider
 	providerID string // opaque ID for the review request
+
+	// Loading state (phaseLoading)
+	loadingStatus string // current loading step description
+	spinnerFrame  int    // index into spinner characters
 }
 
 // NewApp creates a new App model.
@@ -313,6 +319,9 @@ func (a *App) SetCommits(commits []vcs.CommitInfo, diffs map[string][]model.Diff
 
 // Init implements tea.Model.
 func (a App) Init() tea.Cmd {
+	if a.phase == phaseLoading {
+		return tea.Batch(spinnerTick(), a.loadProviderCmd())
+	}
 	return nil
 }
 
@@ -328,15 +337,39 @@ func (a *App) SetSize(width, height int) {
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
+		if a.phase == phaseLoading {
+			if msg.Key().Code == 'q' || msg.Key().Code == tea.KeyEscape {
+				return &a, func() tea.Msg { return DoneMsg{} }
+			}
+			return &a, nil
+		}
 		return a.handleKey(msg)
+	case spinnerTickMsg:
+		if a.phase == phaseLoading {
+			a.spinnerFrame++
+			return &a, spinnerTick()
+		}
+	case providerLoadedMsg:
+		cmd := a.handleProviderLoaded(msg)
+		return &a, cmd
 	}
 	return &a, nil
 }
 
 // View implements tea.Model.
 func (a App) View() tea.View {
+	v := a.view()
+	v.AltScreen = true
+	return v
+}
+
+func (a App) view() tea.View {
 	if a.width == 0 || a.height == 0 {
 		return tea.NewView("")
+	}
+
+	if a.phase == phaseLoading {
+		return tea.NewView(a.renderLoading())
 	}
 
 	if a.phase == phasePicker {

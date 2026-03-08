@@ -13,7 +13,6 @@ import (
 
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/persistence"
-	"github.com/pgavlin/crtea/provider"
 	gh "github.com/pgavlin/crtea/provider/github"
 	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
@@ -27,6 +26,7 @@ import (
 type appWrapper struct {
 	app     ui.App
 	session *model.ReviewSession
+	err     error
 }
 
 func (w *appWrapper) Init() tea.Cmd {
@@ -40,6 +40,7 @@ func (w *appWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return w, nil
 	case ui.DoneMsg:
 		w.session = msg.Session
+		w.err = msg.Err
 		return w, tea.Quit
 	case ui.ClipboardMsg:
 		return w, tea.SetClipboard(msg.Content)
@@ -114,10 +115,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 			return fmt.Errorf("detecting GitHub remote: %w", err)
 		}
 		p := gh.New(owner, repo)
-		app, err = runWithProvider(backend, p, prID, th, highlighter, store)
-		if err != nil {
-			return err
-		}
+		app = ui.NewProviderApp(backend, p, prID, th, highlighter, store)
 	} else if revisions := cmd.String("revisions"); revisions != "" {
 		info := backend.Info()
 
@@ -178,6 +176,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	if _, err := p.Run(); err != nil {
 		return err
 	}
+	if w.err != nil {
+		return w.err
+	}
 
 	return nil
 }
@@ -233,115 +234,6 @@ func rangeIncludesHead(revSpec string) bool {
 		return false
 	}
 	return resolved == strings.TrimSpace(string(out2))
-}
-
-// runWithProvider sets up the app using a remote provider.
-// If p is nil, this returns an error (no provider configured yet).
-func runWithProvider(backend vcs.Backend, p provider.Provider, id string, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) (ui.App, error) {
-	if p == nil {
-		return ui.App{}, fmt.Errorf("no provider configured for --pr flag (provider support not yet available)")
-	}
-
-	info := backend.Info()
-
-	// Fetch review request metadata
-	rr, err := p.GetReviewRequest(id)
-	if err != nil {
-		return ui.App{}, fmt.Errorf("fetching review request: %w", err)
-	}
-
-	// Fetch diff
-	diffText, err := p.GetDiff(id)
-	if err != nil {
-		return ui.App{}, fmt.Errorf("fetching diff: %w", err)
-	}
-
-	files := vcs.ParseDiff(diffText)
-	if len(files) == 0 {
-		return ui.App{}, fmt.Errorf("no changes to review")
-	}
-	hl.HighlightFiles(files)
-
-	// Session
-	diffSource := model.DiffPullRequest
-	session, _ := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
-	if session == nil {
-		session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
-	}
-	session.Provider = &model.ProviderInfo{
-		Name: p.Name(),
-		ID:   id,
-		URL:  rr.URL,
-	}
-	if session.Description == "" {
-		session.Description = rr.Title
-		if rr.Body != "" {
-			session.Description += "\n\n" + rr.Body
-		}
-	}
-	for _, f := range files {
-		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
-	}
-
-	// Fetch authenticated user
-	if user, err := p.GetAuthenticatedUser(); err == nil {
-		session.Reviewer = user
-	}
-
-	// Fetch existing reviews
-	reviews, _ := p.ListReviews(id)
-	if len(reviews) > 0 {
-		session.Reviews = make([]model.OverallReview, len(reviews))
-		for i, r := range reviews {
-			session.Reviews[i] = provider.ImportReview(r)
-		}
-	}
-
-	// Fetch existing inline comments
-	comments, _ := p.ListComments(id)
-	if len(comments) > 0 {
-		imported := provider.ImportComments(comments)
-		for path, lineComments := range imported {
-			fr := session.GetOrCreateFileReview(path, model.FileModified)
-			provider.MergeImportedComments(fr, lineComments)
-		}
-	}
-
-	// Fetch conversation
-	convComments, _ := p.ListConversation(id)
-	if len(convComments) > 0 {
-		session.Conversation = provider.ImportConversation(convComments)
-	}
-
-	// Seed the provider's refresh baseline so the first :refresh only
-	// reports items that appeared after startup.
-	p.Seed(rr, comments, reviews, convComments)
-
-	app := ui.NewApp(backend, files, session, th, hl, store)
-	app.SetProvider(p, id)
-
-	// Fetch commits for the commit list
-	if commits, err := p.ListCommits(id); err == nil && len(commits) > 0 {
-		commitInfos := make([]vcs.CommitInfo, len(commits))
-		commitDiffs := make(map[string][]model.DiffFile, len(commits))
-		for i, c := range commits {
-			commitInfos[i] = vcs.CommitInfo{
-				ID:      c.ID,
-				ShortID: c.ShortID,
-				Summary: c.Summary,
-				Author:  c.Author,
-				Time:    c.Time,
-			}
-			if cdiff, err := p.GetCommitDiff(id, c.ID); err == nil {
-				cf := vcs.ParseDiff(cdiff)
-				hl.HighlightFiles(cf)
-				commitDiffs[c.ID] = cf
-			}
-		}
-		app.SetCommits(commitInfos, commitDiffs)
-	}
-
-	return app, nil
 }
 
 func selectTheme(name string) (theme.Theme, string) {

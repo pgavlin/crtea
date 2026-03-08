@@ -20,6 +20,7 @@ type appPhase int
 const (
 	phaseReview appPhase = iota
 	phasePicker
+	phaseLoading
 )
 
 const worktreeKey = "worktree"
