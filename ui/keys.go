@@ -15,6 +15,36 @@ import (
 	"github.com/pgavlin/crtea/vcs"
 )
 
+// wordBack returns the cursor position after moving one word backward.
+func wordBack(buf string, cursor int) int {
+	// Skip whitespace/punctuation, then skip word characters.
+	i := cursor
+	for i > 0 && !isWordChar(buf[i-1]) {
+		i--
+	}
+	for i > 0 && isWordChar(buf[i-1]) {
+		i--
+	}
+	return i
+}
+
+// wordForward returns the cursor position after moving one word forward.
+func wordForward(buf string, cursor int) int {
+	n := len(buf)
+	i := cursor
+	for i < n && !isWordChar(buf[i]) {
+		i++
+	}
+	for i < n && isWordChar(buf[i]) {
+		i++
+	}
+	return i
+}
+
+func isWordChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
+}
+
 // handleTextInput handles common text editing keys (backspace, shift-enter newline,
 // character insertion) for any buffer/cursor pair. Returns true if the key was consumed.
 func handleTextInput(key tea.Key, buffer *string, cursor *int) bool {
@@ -29,7 +59,7 @@ func handleTextInput(key tea.Key, buffer *string, cursor *int) bool {
 			*cursor--
 		}
 		return true
-	case key.Code == tea.KeyDelete:
+	case key.Code == tea.KeyDelete, key.Code == 'd' && key.Mod == tea.ModCtrl:
 		if *cursor < len(*buffer) {
 			*buffer = (*buffer)[:*cursor] + (*buffer)[*cursor+1:]
 		}
@@ -44,11 +74,29 @@ func handleTextInput(key tea.Key, buffer *string, cursor *int) bool {
 			*cursor++
 		}
 		return true
+	case key.Code == 'b' && key.Mod == tea.ModAlt:
+		*cursor = wordBack(*buffer, *cursor)
+		return true
+	case key.Code == 'f' && key.Mod == tea.ModAlt:
+		*cursor = wordForward(*buffer, *cursor)
+		return true
 	case key.Code == tea.KeyHome, key.Code == 'a' && key.Mod == tea.ModCtrl:
 		*cursor = 0
 		return true
 	case key.Code == tea.KeyEnd, key.Code == 'e' && key.Mod == tea.ModCtrl:
 		*cursor = len(*buffer)
+		return true
+	case key.Code == 'k' && key.Mod == tea.ModCtrl:
+		*buffer = (*buffer)[:*cursor]
+		return true
+	case key.Code == 'u' && key.Mod == tea.ModCtrl:
+		*buffer = (*buffer)[*cursor:]
+		*cursor = 0
+		return true
+	case key.Code == 'w' && key.Mod == tea.ModCtrl:
+		newPos := wordBack(*buffer, *cursor)
+		*buffer = (*buffer)[:newPos] + (*buffer)[*cursor:]
+		*cursor = newPos
 		return true
 	default:
 		if key.Text != "" {
