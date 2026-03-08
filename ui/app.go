@@ -28,6 +28,7 @@ const (
 	modeReview
 	modeBug
 	modeConversation
+	modeEditPR
 )
 
 type focusedPanel int
@@ -426,6 +427,16 @@ func (a App) view() tea.View {
 		}
 		contentHeight -= editorHeight + 1
 		editorPane = a.renderReviewEditor(a.width, editorHeight)
+	} else if a.inputMode == modeEditPR {
+		editorHeight := 12
+		if editorHeight > contentHeight-2 {
+			editorHeight = contentHeight - 2
+		}
+		if editorHeight < 3 {
+			editorHeight = 3
+		}
+		contentHeight -= editorHeight + 1
+		editorPane = a.renderPREditor(a.width, editorHeight)
 	}
 
 	// Main content area

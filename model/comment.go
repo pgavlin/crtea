@@ -67,6 +67,8 @@ type Comment struct {
 	ReplyToID  string      `json:"reply_to_id,omitempty"`
 	Submitted  bool        `json:"submitted,omitempty"`
 	IsOutdated bool        `json:"is_outdated,omitempty"`
+	ThreadID   string      `json:"thread_id,omitempty"`
+	IsResolved bool        `json:"is_resolved,omitempty"`
 }
 
 // NewComment creates a new comment.

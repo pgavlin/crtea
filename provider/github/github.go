@@ -16,6 +16,9 @@ type GitHub struct {
 	Owner string
 	Repo  string
 
+	// PR GraphQL node ID (for mutations like markReadyForReview)
+	prNodeID string
+
 	// Cached state for refresh diffing
 	lastHeadSHA    string
 	lastCommentIDs map[string]bool
@@ -99,6 +102,7 @@ func (g *GitHub) GetReviewRequest(id string) (*provider.ReviewRequest, error) {
 	if err := json.Unmarshal(out, &pr); err != nil {
 		return nil, fmt.Errorf("parsing PR: %w", err)
 	}
+	g.prNodeID = pr.NodeID
 	return pr.toProvider(), nil
 }
 
@@ -169,6 +173,42 @@ func (g *GitHub) ListComments(id string) ([]provider.Comment, error) {
 		}
 		comments = append(comments, gc.toProvider())
 	}
+
+	// Fetch thread resolution status via GraphQL and apply to comments.
+	threads, err := g.fetchThreadResolution(id)
+	if err == nil {
+		// Build map from root comment ID to thread info
+		rootThreads := make(map[string]threadInfo)
+		for commentID, info := range threads {
+			rootThreads[commentID] = info
+		}
+		// First pass: set thread info on root comments
+		for i := range comments {
+			if info, ok := rootThreads[comments[i].ExternalID]; ok {
+				comments[i].ThreadID = info.threadID
+				comments[i].IsResolved = info.isResolved
+			}
+		}
+		// Second pass: propagate to replies
+		threadByRoot := make(map[string]threadInfo)
+		for i := range comments {
+			if comments[i].ThreadID != "" {
+				threadByRoot[comments[i].ExternalID] = threadInfo{
+					threadID:   comments[i].ThreadID,
+					isResolved: comments[i].IsResolved,
+				}
+			}
+		}
+		for i := range comments {
+			if comments[i].ThreadID == "" && comments[i].ReplyToID != "" {
+				if info, ok := threadByRoot[comments[i].ReplyToID]; ok {
+					comments[i].ThreadID = info.threadID
+					comments[i].IsResolved = info.isResolved
+				}
+			}
+		}
+	}
+
 	return comments, nil
 }
 
@@ -260,6 +300,140 @@ func (g *GitHub) PostConversationComment(id string, body string) error {
 	return nil
 }
 
+func (g *GitHub) EditComment(id string, commentID string, body string) error {
+	payload, err := json.Marshal(map[string]string{"body": body})
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("gh", "api",
+		g.apiPath("/pulls/comments/%s", commentID),
+		"--method", "PATCH", "--input", "-")
+	cmd.Stdin = strings.NewReader(string(payload))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("editing comment: %s", string(out))
+	}
+	return nil
+}
+
+func (g *GitHub) DeleteComment(id string, commentID string) error {
+	_, err := ghAPI(g.apiPath("/pulls/comments/%s", commentID), "--method", "DELETE")
+	if err != nil {
+		return fmt.Errorf("deleting comment: %w", err)
+	}
+	return nil
+}
+
+func (g *GitHub) ResolveThread(id string, threadID string) error {
+	query := `mutation($threadId: ID!) { resolveReviewThread(input: {threadId: $threadId}) { reviewThread { isResolved } } }`
+	_, err := ghAPI("graphql", "-f", "query="+query, "-f", "threadId="+threadID)
+	if err != nil {
+		return fmt.Errorf("resolving thread: %w", err)
+	}
+	return nil
+}
+
+func (g *GitHub) UnresolveThread(id string, threadID string) error {
+	query := `mutation($threadId: ID!) { unresolveReviewThread(input: {threadId: $threadId}) { reviewThread { isResolved } } }`
+	_, err := ghAPI("graphql", "-f", "query="+query, "-f", "threadId="+threadID)
+	if err != nil {
+		return fmt.Errorf("unresolving thread: %w", err)
+	}
+	return nil
+}
+
+func (g *GitHub) MarkReadyForReview(id string) error {
+	if g.prNodeID == "" {
+		return fmt.Errorf("PR node ID not available")
+	}
+	query := `mutation($prId: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $prId}) { pullRequest { isDraft } } }`
+	_, err := ghAPI("graphql", "-f", "query="+query, "-f", "prId="+g.prNodeID)
+	if err != nil {
+		return fmt.Errorf("marking ready: %w", err)
+	}
+	return nil
+}
+
+func (g *GitHub) UpdateReviewRequest(id string, title string, body string) error {
+	payload, err := json.Marshal(map[string]string{"title": title, "body": body})
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("gh", "api",
+		g.apiPath("/pulls/%s", id),
+		"--method", "PATCH", "--input", "-")
+	cmd.Stdin = strings.NewReader(string(payload))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("updating PR: %s", string(out))
+	}
+	return nil
+}
+
+// fetchThreadResolution queries GraphQL for review thread resolution status.
+// Returns a map of comment database ID (string) to threadInfo.
+type threadInfo struct {
+	threadID   string
+	isResolved bool
+}
+
+func (g *GitHub) fetchThreadResolution(prNumber string) (map[string]threadInfo, error) {
+	query := fmt.Sprintf(`query {
+		repository(owner: %q, name: %q) {
+			pullRequest(number: %s) {
+				reviewThreads(first: 100) {
+					nodes {
+						id
+						isResolved
+						comments(first: 1) {
+							nodes { databaseId }
+						}
+					}
+				}
+			}
+		}
+	}`, g.Owner, g.Repo, prNumber)
+
+	out, err := ghAPI("graphql", "-f", "query="+query)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						Nodes []struct {
+							ID         string `json:"id"`
+							IsResolved bool   `json:"isResolved"`
+							Comments   struct {
+								Nodes []struct {
+									DatabaseID int `json:"databaseId"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return nil, fmt.Errorf("parsing thread resolution: %w", err)
+	}
+
+	result := make(map[string]threadInfo)
+	for _, thread := range resp.Data.Repository.PullRequest.ReviewThreads.Nodes {
+		for _, comment := range thread.Comments.Nodes {
+			result[strconv.Itoa(comment.DatabaseID)] = threadInfo{
+				threadID:   thread.ID,
+				isResolved: thread.IsResolved,
+			}
+		}
+	}
+	return result, nil
+}
+
 // Seed records the initial state of the review so that the first Refresh
 // correctly reports only items that appeared after startup.
 func (g *GitHub) Seed(rr *provider.ReviewRequest, comments []provider.Comment, reviews []provider.Review, conv []provider.ConversationComment) {
@@ -305,6 +479,7 @@ func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error) {
 	// Find new comments
 	comments, err := g.ListComments(id)
 	if err == nil {
+		result.AllComments = comments
 		newIDs := make(map[string]bool, len(comments))
 		for _, c := range comments {
 			newIDs[c.ExternalID] = true
@@ -372,9 +547,11 @@ func exportReviewEvent(state provider.ReviewState) string {
 
 type ghPullRequest struct {
 	Number  int    `json:"number"`
+	NodeID  string `json:"node_id"`
 	Title   string `json:"title"`
 	Body    string `json:"body"`
 	State   string `json:"state"`
+	Draft   bool   `json:"draft"`
 	User    ghUser `json:"user"`
 	HTMLURL string `json:"html_url"`
 	Base    struct {
@@ -397,6 +574,7 @@ func (pr *ghPullRequest) toProvider() *provider.ReviewRequest {
 		Title:   pr.Title,
 		Body:    pr.Body,
 		State:   state,
+		IsDraft: pr.Draft,
 		Author:  pr.User.Login,
 		URL:     pr.HTMLURL,
 		BaseRef: pr.Base.Ref,

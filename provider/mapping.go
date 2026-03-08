@@ -18,6 +18,8 @@ func ImportComments(comments []Comment) map[string]map[int][]model.Comment {
 			ExternalID: c.ExternalID,
 			ReplyToID:  c.ReplyToID,
 			IsOutdated: c.IsOutdated,
+			ThreadID:   c.ThreadID,
+			IsResolved: c.IsResolved,
 		}
 		switch c.Side {
 		case "old":

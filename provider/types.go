@@ -9,6 +9,7 @@ type ReviewRequest struct {
 	Title   string
 	Body    string
 	State   string // "open", "closed", "merged"
+	IsDraft bool
 	Author  string
 	URL     string // web URL
 	BaseRef string
@@ -47,6 +48,8 @@ type Comment struct {
 	ReplyToID  string // empty if top-level
 	CreatedAt  time.Time
 	IsOutdated bool
+	ThreadID   string // GraphQL node ID of the review thread
+	IsResolved bool   // whether the thread is resolved
 }
 
 // ConversationComment is a general comment not tied to code.
@@ -87,6 +90,7 @@ type Commit struct {
 type RefreshResult struct {
 	Request         *ReviewRequest
 	NewComments     []Comment
+	AllComments     []Comment // full current comment list (for updating outdated status)
 	NewReviews      []Review
 	NewConversation []ConversationComment
 	DiffChanged     bool   // true if the diff changed (new commits pushed)

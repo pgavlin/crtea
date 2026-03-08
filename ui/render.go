@@ -259,6 +259,9 @@ func (a *App) renderStatusBar() string {
 			}
 			label += ": " + title
 		}
+		if a.session.IsDraft {
+			label += " [DRAFT]"
+		}
 		left = label + dirtyMark + " "
 	} else {
 		left = fmt.Sprintf(" [%s:%s]%s ", a.vcsInfo.VcsType, branchStyle.Render(a.vcsInfo.BranchName), dirtyMark)
@@ -324,6 +327,8 @@ func (a *App) renderFooter() string {
 		content = " Enter: post | Esc: cancel | Shift-Enter: newline"
 	case modeReview:
 		content = " Enter: save | Esc: cancel | Tab: cycle status | Shift-Enter: newline"
+	case modeEditPR:
+		content = " Enter: save | Esc: cancel | Shift-Enter: newline"
 	case modeBug:
 		content = " Enter: submit | Esc: cancel | Shift-Enter: newline"
 	case modeConfirm:
@@ -1059,6 +1064,9 @@ func (a *App) renderCommentLine(ann annotatedLine, width int, isCursor, isFileLe
 		if comment.IsOutdated {
 			badgeText += " [outdated]"
 		}
+		if comment.IsResolved {
+			badgeText += " [resolved]"
+		}
 		typeBadge := lipgloss.NewStyle().
 			Background(typeColor).
 			Foreground(th.ModeFg).
@@ -1282,6 +1290,12 @@ func (a *App) renderBugEditor(width, height int) string {
 	return a.renderEditorBoxFull(width, height, th.CommentIssue, a.bugBuffer, a.bugCursor, title)
 }
 
+func (a *App) renderPREditor(width, height int) string {
+	th := a.theme
+	title := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true).Render(" Edit PR Description ")
+	return a.renderEditorBoxFull(width, height, th.FgPrimary, a.reviewBuffer, a.reviewCursor, title)
+}
+
 func (a *App) commentTypeColor(ct model.CommentType) color.Color {
 	th := a.theme
 	switch ct {
@@ -1327,6 +1341,7 @@ func (a *App) renderHelp(height int) string {
 		"  dd                Delete comment at cursor",
 		"  v                 Visual select lines",
 		"  R                 Overall review",
+		"  ;r                Resolve/unresolve thread",
 		"  Tab (in comment)  Cycle comment type",
 		"",
 		"File List",
@@ -1353,6 +1368,8 @@ func (a *App) renderHelp(height int) string {
 		"  :refresh          Refresh from remote",
 		"  :comment          Post conversation comment",
 		"  :clear            Clear draft comments",
+		"  :ready            Mark draft PR as ready",
+		"  :edit-pr / :desc  Edit PR title/description",
 		"",
 		"Search",
 		"  /pattern          Search forward",

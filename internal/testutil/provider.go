@@ -105,6 +105,34 @@ func (m *MockProvider) PostConversationComment(id string, body string) error {
 	return nil
 }
 
+func (m *MockProvider) EditComment(id string, commentID string, body string) error {
+	return nil
+}
+
+func (m *MockProvider) DeleteComment(id string, commentID string) error {
+	return nil
+}
+
+func (m *MockProvider) ResolveThread(id string, threadID string) error {
+	return nil
+}
+
+func (m *MockProvider) UnresolveThread(id string, threadID string) error {
+	return nil
+}
+
+func (m *MockProvider) MarkReadyForReview(id string) error {
+	return nil
+}
+
+func (m *MockProvider) UpdateReviewRequest(id string, title string, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Request.Title = title
+	m.Request.Body = body
+	return nil
+}
+
 func (m *MockProvider) Seed(rr *provider.ReviewRequest, comments []provider.Comment, reviews []provider.Review, conv []provider.ConversationComment) {
 	// No-op for test mock.
 }

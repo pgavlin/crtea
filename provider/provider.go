@@ -38,6 +38,24 @@ type Provider interface {
 	// PostConversationComment posts a general conversation comment.
 	PostConversationComment(id string, body string) error
 
+	// EditComment updates the body of an existing inline comment.
+	EditComment(id string, commentID string, body string) error
+
+	// DeleteComment removes an inline comment.
+	DeleteComment(id string, commentID string) error
+
+	// ResolveThread marks a review thread as resolved.
+	ResolveThread(id string, threadID string) error
+
+	// UnresolveThread marks a review thread as unresolved.
+	UnresolveThread(id string, threadID string) error
+
+	// MarkReadyForReview converts a draft PR to ready for review.
+	MarkReadyForReview(id string) error
+
+	// UpdateReviewRequest updates the title and body of a PR.
+	UpdateReviewRequest(id string, title string, body string) error
+
 	// Refresh re-fetches remote state and returns what changed.
 	Refresh(id string) (*RefreshResult, error)
 

@@ -235,6 +235,37 @@ func (m *Mock) PostConversationComment(id string, body string) error {
 	return nil
 }
 
+func (m *Mock) EditComment(id string, commentID string, body string) error {
+	return nil
+}
+
+func (m *Mock) DeleteComment(id string, commentID string) error {
+	return nil
+}
+
+func (m *Mock) ResolveThread(id string, threadID string) error {
+	return nil
+}
+
+func (m *Mock) UnresolveThread(id string, threadID string) error {
+	return nil
+}
+
+func (m *Mock) MarkReadyForReview(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.request.IsDraft = false
+	return nil
+}
+
+func (m *Mock) UpdateReviewRequest(id string, title string, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.request.Title = title
+	m.request.Body = body
+	return nil
+}
+
 func (m *Mock) Seed(rr *provider.ReviewRequest, comments []provider.Comment, reviews []provider.Review, conv []provider.ConversationComment) {
 	// No-op: Mock tracks refresh state internally via lastRefreshIdx.
 }

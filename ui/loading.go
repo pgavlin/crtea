@@ -95,6 +95,7 @@ func (a *App) loadProviderCmd() tea.Cmd {
 			ID:   id,
 			URL:  rr.URL,
 		}
+		session.IsDraft = rr.IsDraft
 		if session.Description == "" {
 			session.Description = rr.Title
 			if rr.Body != "" {

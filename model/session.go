@@ -127,6 +127,7 @@ type ReviewSession struct {
 	Reviewer     string                `json:"reviewer,omitempty"`
 	Reviews      []OverallReview       `json:"reviews,omitempty"`
 	Conversation []ConversationComment `json:"conversation,omitempty"`
+	IsDraft      bool                  `json:"is_draft,omitempty"`
 }
 
 // NewSession creates a new review session.

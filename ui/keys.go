@@ -68,6 +68,8 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a.handleBugKey(msg)
 	case modeConversation:
 		return a.handleConversationKey(msg)
+	case modeEditPR:
+		return a.handleEditPRKey(msg)
 	default:
 		return a.handleNormalKey(msg)
 	}
@@ -315,6 +317,8 @@ func (a App) handlePendingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.nextUnreviewedFile()
 		case 'p':
 			a.prevUnreviewedFile()
+		case 'r':
+			return &a, a.toggleResolveThread()
 		}
 	}
 
@@ -1045,6 +1049,12 @@ func (a *App) saveComment() {
 		if a.commentIsFile {
 			for i, c := range fr.FileComments {
 				if c.ID == a.editingID {
+					if c.ExternalID != "" && a.provider != nil {
+						if err := a.provider.EditComment(a.providerID, c.ExternalID, a.commentBuffer); err != nil {
+							a.setMessage("Remote edit failed: "+err.Error(), messageError)
+							return
+						}
+					}
 					fr.FileComments[i].Content = a.commentBuffer
 					fr.FileComments[i].Type = a.commentType
 					break
@@ -1054,6 +1064,12 @@ func (a *App) saveComment() {
 			if comments, ok := fr.LineComments[a.commentLine]; ok {
 				for i, c := range comments {
 					if c.ID == a.editingID {
+						if c.ExternalID != "" && a.provider != nil {
+							if err := a.provider.EditComment(a.providerID, c.ExternalID, a.commentBuffer); err != nil {
+								a.setMessage("Remote edit failed: "+err.Error(), messageError)
+								return
+							}
+						}
 						comments[i].Content = a.commentBuffer
 						comments[i].Type = a.commentType
 						break
@@ -1114,6 +1130,12 @@ func (a *App) deleteCommentAtCursor() {
 				a.setMessage("Cannot delete others' comments", messageWarning)
 				return
 			}
+			if c.ExternalID != "" && a.provider != nil {
+				if err := a.provider.DeleteComment(a.providerID, c.ExternalID); err != nil {
+					a.setMessage("Remote delete failed: "+err.Error(), messageError)
+					return
+				}
+			}
 			fr.FileComments = append(fr.FileComments[:ann.CommentIdx], fr.FileComments[ann.CommentIdx+1:]...)
 			a.markDirty()
 			a.rebuildAnnotations()
@@ -1126,6 +1148,12 @@ func (a *App) deleteCommentAtCursor() {
 			if a.isOthersComment(&c) {
 				a.setMessage("Cannot delete others' comments", messageWarning)
 				return
+			}
+			if c.ExternalID != "" && a.provider != nil {
+				if err := a.provider.DeleteComment(a.providerID, c.ExternalID); err != nil {
+					a.setMessage("Remote delete failed: "+err.Error(), messageError)
+					return
+				}
 			}
 			fr.LineComments[lineNo] = append(comments[:ann.CommentIdx], comments[ann.CommentIdx+1:]...)
 			if len(fr.LineComments[lineNo]) == 0 {
@@ -1218,6 +1246,23 @@ func (a App) handleReviewKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.inputMode = modeNormal
 	case key.Code == tea.KeyTab:
 		a.reviewStatus = a.reviewStatus.Next()
+	default:
+		handleTextInput(key, &a.reviewBuffer, &a.reviewCursor)
+	}
+	return &a, nil
+}
+
+func (a App) handleEditPRKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.Key()
+	switch {
+	case key.Code == tea.KeyEscape:
+		a.inputMode = modeNormal
+		a.reviewBuffer = ""
+	case key.Code == tea.KeyEnter && key.Mod == 0:
+		cmd := a.saveEditPR()
+		a.inputMode = modeNormal
+		a.reviewBuffer = ""
+		return &a, cmd
 	default:
 		handleTextInput(key, &a.reviewBuffer, &a.reviewCursor)
 	}
@@ -1465,6 +1510,10 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		return a.refreshFromProvider()
 	case "comment":
 		return a.postConversationComment()
+	case "ready":
+		return a.markReadyForReview()
+	case "edit-pr", "desc":
+		return a.editPRDescription()
 	case "clear":
 		// Count draft comments first
 		draftCount := 0
@@ -1665,6 +1714,33 @@ func (a *App) refreshFromProvider() tea.Cmd {
 		newCount += len(result.NewConversation)
 	}
 
+	// Update outdated status from full comment list
+	if len(result.AllComments) > 0 {
+		outdated := make(map[string]bool, len(result.AllComments))
+		for _, c := range result.AllComments {
+			if c.IsOutdated {
+				outdated[c.ExternalID] = true
+			}
+		}
+		for _, fr := range a.session.Files {
+			for line, comments := range fr.LineComments {
+				changed := false
+				for i := range comments {
+					if comments[i].ExternalID != "" {
+						was := comments[i].IsOutdated
+						comments[i].IsOutdated = outdated[comments[i].ExternalID]
+						if was != comments[i].IsOutdated {
+							changed = true
+						}
+					}
+				}
+				if changed {
+					fr.LineComments[line] = comments
+				}
+			}
+		}
+	}
+
 	// Re-parse diff if changed
 	if result.DiffChanged && result.Diff != "" {
 		files := vcs.ParseDiff(result.Diff)
@@ -1683,6 +1759,151 @@ func (a *App) refreshFromProvider() tea.Cmd {
 		a.dirty = false
 	}
 	a.setMessage(fmt.Sprintf("Refreshed: %d new items", newCount), messageInfo)
+	return nil
+}
+
+func (a *App) toggleResolveThread() tea.Cmd {
+	if a.provider == nil {
+		a.setMessage("Not connected to a remote provider", messageWarning)
+		return nil
+	}
+	if a.cursorLine < 0 || a.cursorLine >= len(a.annotations) {
+		return nil
+	}
+	ann := a.annotations[a.cursorLine]
+	if ann.Type != annLineComment && ann.Type != annFileComment {
+		a.setMessage("Move cursor to a comment to resolve/unresolve", messageWarning)
+		return nil
+	}
+
+	var comment *model.Comment
+	path := a.currentFilePath()
+	if path == "" {
+		return nil
+	}
+	fr := a.session.GetFileReview(path)
+	if fr == nil {
+		return nil
+	}
+
+	switch ann.Type {
+	case annFileComment:
+		if ann.CommentIdx < len(fr.FileComments) {
+			comment = &fr.FileComments[ann.CommentIdx]
+		}
+	case annLineComment:
+		lineNo := a.getCommentLineNo(ann)
+		if comments, ok := fr.LineComments[lineNo]; ok && ann.CommentIdx < len(comments) {
+			comment = &comments[ann.CommentIdx]
+			defer func() { fr.LineComments[lineNo] = comments }()
+		}
+	}
+
+	if comment == nil {
+		return nil
+	}
+	if comment.ThreadID == "" {
+		a.setMessage("Comment has no thread to resolve", messageWarning)
+		return nil
+	}
+
+	if comment.IsResolved {
+		if err := a.provider.UnresolveThread(a.providerID, comment.ThreadID); err != nil {
+			a.setMessage("Unresolve failed: "+err.Error(), messageError)
+			return nil
+		}
+		comment.IsResolved = false
+		a.setMessage("Thread unresolved", messageInfo)
+	} else {
+		if err := a.provider.ResolveThread(a.providerID, comment.ThreadID); err != nil {
+			a.setMessage("Resolve failed: "+err.Error(), messageError)
+			return nil
+		}
+		comment.IsResolved = true
+		a.setMessage("Thread resolved", messageInfo)
+	}
+	a.rebuildAnnotations()
+	return nil
+}
+
+func (a *App) markReadyForReview() tea.Cmd {
+	if a.provider == nil {
+		a.setMessage("Not connected to a remote provider", messageWarning)
+		return nil
+	}
+	if a.session == nil || !a.session.IsDraft {
+		a.setMessage("PR is not a draft", messageWarning)
+		return nil
+	}
+	a.confirmPrompt = "Mark PR as ready for review?"
+	a.confirmCallback = func(a *App) tea.Cmd {
+		if err := a.provider.MarkReadyForReview(a.providerID); err != nil {
+			a.setMessage("Failed: "+err.Error(), messageError)
+			return nil
+		}
+		a.session.IsDraft = false
+		a.setMessage("PR marked as ready for review", messageInfo)
+		return nil
+	}
+	a.inputMode = modeConfirm
+	return nil
+}
+
+func (a *App) editPRDescription() tea.Cmd {
+	if a.provider == nil {
+		a.setMessage("Not connected to a remote provider", messageWarning)
+		return nil
+	}
+	if a.session == nil || a.session.Provider == nil {
+		a.setMessage("No PR session", messageWarning)
+		return nil
+	}
+
+	// Parse title and body from description
+	desc := a.session.Description
+	parts := strings.SplitN(desc, "\n\n", 2)
+	title := parts[0]
+	body := ""
+	if len(parts) > 1 {
+		body = parts[1]
+	}
+
+	// Use the review buffer/mode to edit the title
+	a.reviewBuffer = title + "\n\n" + body
+	a.reviewCursor = len(a.reviewBuffer)
+	a.inputMode = modeEditPR
+	return nil
+}
+
+func (a *App) saveEditPR() tea.Cmd {
+	if a.provider == nil {
+		return nil
+	}
+	text := strings.TrimSpace(a.reviewBuffer)
+	if text == "" {
+		a.setMessage("Title cannot be empty", messageWarning)
+		return nil
+	}
+
+	parts := strings.SplitN(text, "\n\n", 2)
+	title := strings.TrimSpace(parts[0])
+	body := ""
+	if len(parts) > 1 {
+		body = strings.TrimSpace(parts[1])
+	}
+
+	if err := a.provider.UpdateReviewRequest(a.providerID, title, body); err != nil {
+		a.setMessage("Update failed: "+err.Error(), messageError)
+		return nil
+	}
+
+	if body != "" {
+		a.session.Description = title + "\n\n" + body
+	} else {
+		a.session.Description = title
+	}
+	a.markDirty()
+	a.setMessage("PR description updated", messageInfo)
 	return nil
 }
 
