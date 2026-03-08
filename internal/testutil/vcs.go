@@ -64,6 +64,10 @@ func (m *MockVCS) GetRecentCommits(offset, limit int) ([]vcs.CommitInfo, error) 
 	return m.RecentCommits, m.RecentCommitsErr
 }
 
+func (m *MockVCS) GetCommitsInRange(revSpec string) ([]vcs.CommitInfo, error) {
+	return m.RecentCommits, m.RecentCommitsErr
+}
+
 // MockStore implements persistence.Store for testing.
 type MockStore struct {
 	Sessions map[string]*model.ReviewSession // key: repoPath+branch+source
