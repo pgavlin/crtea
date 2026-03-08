@@ -23,10 +23,36 @@ type MockProvider struct {
 	RefreshResult *provider.RefreshResult
 	RefreshErr    error
 
+	// Error simulation for specific methods
+	EditCommentErr      error
+	DeleteCommentErr    error
+	ResolveThreadErr    error
+	UnresolveThreadErr  error
+	MarkReadyErr        error
+	UpdateReviewErr     error
+
 	// Recorded calls
-	SubmittedReviews []provider.SubmitReviewRequest
-	Replies          []ReplyCall
-	PostedComments   []string // conversation comment bodies
+	SubmittedReviews    []provider.SubmitReviewRequest
+	Replies             []ReplyCall
+	PostedComments      []string // conversation comment bodies
+	EditedComments      []EditCommentCall
+	DeletedComments     []string // comment IDs
+	ResolvedThreads     []string // thread IDs
+	UnresolvedThreads   []string // thread IDs
+	MarkedReady         bool
+	UpdatedDescriptions []UpdateDescCall
+}
+
+// EditCommentCall records a call to EditComment.
+type EditCommentCall struct {
+	CommentID string
+	Body      string
+}
+
+// UpdateDescCall records a call to UpdateReviewRequest.
+type UpdateDescCall struct {
+	Title string
+	Body  string
 }
 
 // ReplyCall records a call to ReplyToComment.
@@ -106,30 +132,65 @@ func (m *MockProvider) PostConversationComment(id string, body string) error {
 }
 
 func (m *MockProvider) EditComment(id string, commentID string, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.EditCommentErr != nil {
+		return m.EditCommentErr
+	}
+	m.EditedComments = append(m.EditedComments, EditCommentCall{CommentID: commentID, Body: body})
 	return nil
 }
 
 func (m *MockProvider) DeleteComment(id string, commentID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.DeleteCommentErr != nil {
+		return m.DeleteCommentErr
+	}
+	m.DeletedComments = append(m.DeletedComments, commentID)
 	return nil
 }
 
 func (m *MockProvider) ResolveThread(id string, threadID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ResolveThreadErr != nil {
+		return m.ResolveThreadErr
+	}
+	m.ResolvedThreads = append(m.ResolvedThreads, threadID)
 	return nil
 }
 
 func (m *MockProvider) UnresolveThread(id string, threadID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.UnresolveThreadErr != nil {
+		return m.UnresolveThreadErr
+	}
+	m.UnresolvedThreads = append(m.UnresolvedThreads, threadID)
 	return nil
 }
 
 func (m *MockProvider) MarkReadyForReview(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.MarkReadyErr != nil {
+		return m.MarkReadyErr
+	}
+	m.MarkedReady = true
+	m.Request.IsDraft = false
 	return nil
 }
 
 func (m *MockProvider) UpdateReviewRequest(id string, title string, body string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.UpdateReviewErr != nil {
+		return m.UpdateReviewErr
+	}
 	m.Request.Title = title
 	m.Request.Body = body
+	m.UpdatedDescriptions = append(m.UpdatedDescriptions, UpdateDescCall{Title: title, Body: body})
 	return nil
 }
 

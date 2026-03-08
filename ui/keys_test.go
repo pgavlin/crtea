@@ -9,6 +9,7 @@ import (
 
 	"github.com/pgavlin/crtea/internal/testutil"
 	"github.com/pgavlin/crtea/model"
+	"github.com/pgavlin/crtea/provider"
 	"github.com/pgavlin/crtea/provider/mock"
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/vcs"
@@ -2880,5 +2881,441 @@ func TestRelativeTime(t *testing.T) {
 
 	if result := relativeTime(time.Time{}); result != "" {
 		t.Errorf("relativeTime(zero) = %q, want empty", result)
+	}
+}
+
+// --- Thread resolution tests ---
+
+func TestResolveThreadAtCursor(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a remote comment with a ThreadID.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-r1",
+		Content:    "This should be fixed",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "reviewer-bob",
+		ExternalID: "ext-r1",
+		ThreadID:   "thread-abc",
+		IsResolved: false,
+	})
+	app.rebuildAnnotations()
+
+	// Move cursor to the comment.
+	idx := findLineComment(app, 2)
+	if idx < 0 {
+		t.Fatal("could not find comment on line 2")
+	}
+	app.cursorLine = idx
+
+	// Resolve with ;r.
+	app = sendKeys(app, keyPress(';'), keyPress('r'))
+
+	// Verify provider was called.
+	if len(mockProv.ResolvedThreads) != 1 {
+		t.Fatalf("expected 1 resolved thread, got %d", len(mockProv.ResolvedThreads))
+	}
+	if mockProv.ResolvedThreads[0] != "thread-abc" {
+		t.Errorf("expected thread-abc, got %s", mockProv.ResolvedThreads[0])
+	}
+
+	// Verify model updated.
+	comments := fr.LineComments[2]
+	if !comments[0].IsResolved {
+		t.Error("expected comment to be marked resolved")
+	}
+
+	if app.message == nil || !strings.Contains(app.message.text, "resolved") {
+		t.Error("expected resolve success message")
+	}
+}
+
+func TestUnresolveThreadAtCursor(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a resolved remote comment.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-r2",
+		Content:    "Already resolved",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "reviewer-bob",
+		ExternalID: "ext-r2",
+		ThreadID:   "thread-def",
+		IsResolved: true,
+	})
+	app.rebuildAnnotations()
+
+	idx := findLineComment(app, 2)
+	app.cursorLine = idx
+
+	app = sendKeys(app, keyPress(';'), keyPress('r'))
+
+	if len(mockProv.UnresolvedThreads) != 1 {
+		t.Fatalf("expected 1 unresolved thread, got %d", len(mockProv.UnresolvedThreads))
+	}
+	if mockProv.UnresolvedThreads[0] != "thread-def" {
+		t.Errorf("expected thread-def, got %s", mockProv.UnresolvedThreads[0])
+	}
+
+	comments := fr.LineComments[2]
+	if comments[0].IsResolved {
+		t.Error("expected comment to be unresolved")
+	}
+}
+
+func TestResolveNoThreadShowsWarning(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Add a comment without ThreadID.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:      "local-1",
+		Content: "Local comment",
+		Type:    model.CommentNote,
+		Side:    model.SideNew,
+	})
+	app.rebuildAnnotations()
+
+	idx := findLineComment(app, 2)
+	app.cursorLine = idx
+
+	app = sendKeys(app, keyPress(';'), keyPress('r'))
+
+	if app.message == nil || !strings.Contains(app.message.text, "no thread") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected 'no thread' warning, got %q", msg)
+	}
+}
+
+func TestResolveNotOnCommentShowsWarning(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Cursor is on a diff line, not a comment.
+	idx := findDiffLine(app, 2)
+	app.cursorLine = idx
+
+	app = sendKeys(app, keyPress(';'), keyPress('r'))
+
+	if app.message == nil || !strings.Contains(app.message.text, "Move cursor") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected 'Move cursor' warning, got %q", msg)
+	}
+}
+
+// --- Remote edit/delete tests ---
+
+func TestEditRemoteComment(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a remote comment.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-e1",
+		Content:    "Original text",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "testuser",
+		ExternalID: "ext-e1",
+	})
+	app.rebuildAnnotations()
+
+	// Move cursor to comment and edit.
+	idx := findLineComment(app, 2)
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('i'))
+
+	if app.inputMode != modeComment {
+		t.Fatal("expected comment mode for editing")
+	}
+
+	// Clear and type new content.
+	for range app.commentBuffer {
+		app = sendKeys(app, keySpecial(tea.KeyBackspace))
+	}
+	app = typeString(app, "Updated text")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	// Verify remote edit was called.
+	if len(mockProv.EditedComments) != 1 {
+		t.Fatalf("expected 1 edited comment, got %d", len(mockProv.EditedComments))
+	}
+	if mockProv.EditedComments[0].CommentID != "ext-e1" {
+		t.Errorf("expected comment ext-e1, got %s", mockProv.EditedComments[0].CommentID)
+	}
+	if mockProv.EditedComments[0].Body != "Updated text" {
+		t.Errorf("expected 'Updated text', got %s", mockProv.EditedComments[0].Body)
+	}
+
+	// Verify model updated.
+	if fr.LineComments[2][0].Content != "Updated text" {
+		t.Errorf("expected model content updated, got %s", fr.LineComments[2][0].Content)
+	}
+}
+
+func TestDeleteRemoteComment(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a remote comment by the reviewer.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-d1",
+		Content:    "Will be deleted",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "testuser",
+		ExternalID: "ext-d1",
+	})
+	app.rebuildAnnotations()
+
+	idx := findLineComment(app, 2)
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('d'), keyPress('d'))
+
+	if len(mockProv.DeletedComments) != 1 {
+		t.Fatalf("expected 1 deleted comment, got %d", len(mockProv.DeletedComments))
+	}
+	if mockProv.DeletedComments[0] != "ext-d1" {
+		t.Errorf("expected ext-d1, got %s", mockProv.DeletedComments[0])
+	}
+
+	// Verify comment removed from model.
+	if len(fr.LineComments[2]) != 0 {
+		t.Errorf("expected 0 comments on line 2, got %d", len(fr.LineComments[2]))
+	}
+}
+
+func TestDeleteLocalCommentNoRemoteCall(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a local draft comment (no ExternalID).
+	idx := findDiffLine(app, 2)
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('c'))
+	app = typeString(app, "draft comment")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	idx = findLineComment(app, 2)
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('d'), keyPress('d'))
+
+	// Should NOT call DeleteComment on provider.
+	if len(mockProv.DeletedComments) != 0 {
+		t.Errorf("expected no remote delete for local comment, got %d", len(mockProv.DeletedComments))
+	}
+}
+
+// --- Draft PR tests ---
+
+func TestMarkReadyForReview(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+	app.session.IsDraft = true
+
+	// Execute :ready.
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "ready")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.inputMode != modeConfirm {
+		t.Fatal("expected confirm mode")
+	}
+
+	// Confirm.
+	app = sendKeys(app, keyPress('y'))
+
+	if mockProv.MarkedReady != true {
+		t.Error("expected MarkReadyForReview to be called")
+	}
+	if app.session.IsDraft {
+		t.Error("expected IsDraft to be false after marking ready")
+	}
+	if app.message == nil || !strings.Contains(app.message.text, "ready") {
+		t.Error("expected success message")
+	}
+}
+
+func TestMarkReadyNotDraftShowsWarning(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+	app.session.IsDraft = false
+
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "ready")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.message == nil || !strings.Contains(app.message.text, "not a draft") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected 'not a draft' warning, got %q", msg)
+	}
+}
+
+// --- PR description editing tests ---
+
+func TestEditPRDescription(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+	app.session.Description = "Original Title\n\nOriginal body text"
+
+	// Execute :edit-pr.
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "edit-pr")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.inputMode != modeEditPR {
+		t.Fatalf("expected modeEditPR, got %d", app.inputMode)
+	}
+	if app.reviewBuffer != "Original Title\n\nOriginal body text" {
+		t.Errorf("expected buffer pre-filled, got %q", app.reviewBuffer)
+	}
+
+	// Clear and type new content.
+	for range app.reviewBuffer {
+		app = sendKeys(app, keySpecial(tea.KeyBackspace))
+	}
+	app = typeString(app, "New Title")
+
+	// Submit.
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.inputMode != modeNormal {
+		t.Fatal("expected normal mode after save")
+	}
+
+	if len(mockProv.UpdatedDescriptions) != 1 {
+		t.Fatalf("expected 1 update call, got %d", len(mockProv.UpdatedDescriptions))
+	}
+	if mockProv.UpdatedDescriptions[0].Title != "New Title" {
+		t.Errorf("expected 'New Title', got %q", mockProv.UpdatedDescriptions[0].Title)
+	}
+	if app.session.Description != "New Title" {
+		t.Errorf("expected session description updated, got %q", app.session.Description)
+	}
+}
+
+func TestEditPRDescriptionViaDescAlias(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+	app.session.Description = "Title"
+
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "desc")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.inputMode != modeEditPR {
+		t.Fatalf("expected modeEditPR from :desc, got %d", app.inputMode)
+	}
+}
+
+func TestEditPREscapeCancels(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+	app.session.Description = "Title"
+
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "edit-pr")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	// Escape should cancel without saving.
+	app = sendKeys(app, keySpecial(tea.KeyEscape))
+
+	if app.inputMode != modeNormal {
+		t.Fatal("expected normal mode after escape")
+	}
+	if len(mockProv.UpdatedDescriptions) != 0 {
+		t.Error("expected no update call after escape")
+	}
+}
+
+// --- Refresh outdated tracking tests ---
+
+func TestRefreshUpdatesOutdatedStatus(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a remote comment that is not yet outdated.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-o1",
+		Content:    "This comment",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "reviewer-bob",
+		ExternalID: "ext-o1",
+		IsOutdated: false,
+	})
+	app.rebuildAnnotations()
+
+	// Refresh with AllComments showing it as outdated.
+	mockProv.SetNextRefresh(&provider.RefreshResult{
+		Request: &mockProv.Request,
+		AllComments: []provider.Comment{
+			{
+				ExternalID: "ext-o1",
+				Author:     "reviewer-bob",
+				Body:       "This comment",
+				Path:       "auth/handler.go",
+				Line:       2,
+				Side:       "new",
+				IsOutdated: true,
+			},
+		},
+	})
+
+	app.refreshFromProvider()
+
+	// Verify the comment is now marked outdated.
+	comments := fr.LineComments[2]
+	if len(comments) == 0 {
+		t.Fatal("expected comment to still exist")
+	}
+	if !comments[0].IsOutdated {
+		t.Error("expected comment to be marked outdated after refresh")
+	}
+}
+
+func TestRefreshClearsOutdatedStatus(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a comment that is currently outdated.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-o2",
+		Content:    "Was outdated",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "reviewer-bob",
+		ExternalID: "ext-o2",
+		IsOutdated: true,
+	})
+	app.rebuildAnnotations()
+
+	// Refresh with AllComments showing it as NOT outdated anymore.
+	mockProv.SetNextRefresh(&provider.RefreshResult{
+		Request: &mockProv.Request,
+		AllComments: []provider.Comment{
+			{
+				ExternalID: "ext-o2",
+				Author:     "reviewer-bob",
+				Body:       "Was outdated",
+				Path:       "auth/handler.go",
+				Line:       2,
+				Side:       "new",
+				IsOutdated: false,
+			},
+		},
+	})
+
+	app.refreshFromProvider()
+
+	comments := fr.LineComments[2]
+	if comments[0].IsOutdated {
+		t.Error("expected comment to no longer be outdated after refresh")
 	}
 }

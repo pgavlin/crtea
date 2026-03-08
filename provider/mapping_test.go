@@ -86,6 +86,50 @@ func TestImportComments(t *testing.T) {
 	}
 }
 
+func TestImportCommentsThreadResolution(t *testing.T) {
+	comments := []Comment{
+		{
+			ExternalID: "c10",
+			Author:     "alice",
+			Body:       "fix this",
+			Path:       "main.go",
+			Line:       5,
+			Side:       "new",
+			ThreadID:   "thread-1",
+			IsResolved: true,
+		},
+		{
+			ExternalID: "c11",
+			Author:     "bob",
+			Body:       "agreed",
+			Path:       "main.go",
+			Line:       5,
+			Side:       "new",
+			ReplyToID:  "c10",
+			ThreadID:   "thread-1",
+			IsResolved: true,
+		},
+	}
+
+	result := ImportComments(comments)
+	line5 := result["main.go"][5]
+	if len(line5) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(line5))
+	}
+	if line5[0].ThreadID != "thread-1" {
+		t.Errorf("expected ThreadID thread-1, got %s", line5[0].ThreadID)
+	}
+	if !line5[0].IsResolved {
+		t.Error("expected IsResolved true on root comment")
+	}
+	if line5[1].ThreadID != "thread-1" {
+		t.Errorf("expected ThreadID thread-1 on reply, got %s", line5[1].ThreadID)
+	}
+	if !line5[1].IsResolved {
+		t.Error("expected IsResolved true on reply comment")
+	}
+}
+
 func TestImportReview(t *testing.T) {
 	review := Review{
 		ExternalID: "r1",

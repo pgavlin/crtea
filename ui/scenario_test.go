@@ -1081,6 +1081,211 @@ func TestScenarioFileListNavigation(t *testing.T) {
 	assertGolden(t, "filelist_jumped", snapshot(app))
 }
 
+// --- Scenario 18: Thread resolve/unresolve ---
+
+func TestScenarioResolveThread(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a remote comment with thread info.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-t1",
+		Content:    "This needs fixing",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "reviewer-bob",
+		ExternalID: "ext-t1",
+		ThreadID:   "thread-xyz",
+		IsResolved: false,
+		CreatedAt:  time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+	})
+	app.rebuildAnnotations()
+
+	assertGolden(t, "resolve_before", snapshot(app))
+
+	// Move to the comment and resolve.
+	idx := findLineComment(app, 2)
+	if idx < 0 {
+		t.Fatal("could not find comment on line 2")
+	}
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress(';'), keyPress('r'))
+
+	if len(mockProv.ResolvedThreads) != 1 {
+		t.Fatalf("expected 1 resolved thread call, got %d", len(mockProv.ResolvedThreads))
+	}
+
+	assertGolden(t, "resolve_after", snapshot(app))
+
+	// Unresolve it.
+	app = sendKeys(app, keyPress(';'), keyPress('r'))
+	if len(mockProv.UnresolvedThreads) != 1 {
+		t.Fatalf("expected 1 unresolved thread call, got %d", len(mockProv.UnresolvedThreads))
+	}
+
+	assertGolden(t, "resolve_undone", snapshot(app))
+}
+
+// --- Scenario 19: Draft PR workflow ---
+
+func TestScenarioDraftPRReady(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+	app.session.IsDraft = true
+
+	assertGolden(t, "draft_initial", snapshot(app))
+
+	// Execute :ready.
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "ready")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.inputMode != modeConfirm {
+		t.Fatal("expected confirm mode")
+	}
+	assertGolden(t, "draft_confirm", snapshot(app))
+
+	// Confirm.
+	app = sendKeys(app, keyPress('y'))
+
+	if !mockProv.MarkedReady {
+		t.Error("expected provider.MarkReadyForReview to be called")
+	}
+	if app.session.IsDraft {
+		t.Error("expected IsDraft to be false")
+	}
+
+	assertGolden(t, "draft_ready", snapshot(app))
+}
+
+// --- Scenario 20: Edit PR description ---
+
+func TestScenarioEditPRDescription(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+	app.session.Description = "Fix auth handling\n\nThis PR fixes the auth handler to use context."
+
+	// Execute :edit-pr.
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "edit-pr")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.inputMode != modeEditPR {
+		t.Fatal("expected modeEditPR")
+	}
+	assertGolden(t, "editpr_editing", snapshot(app))
+
+	// Clear and type new content.
+	for range app.reviewBuffer {
+		app = sendKeys(app, keySpecial(tea.KeyBackspace))
+	}
+	app = typeString(app, "Refactor auth handling")
+
+	// Submit.
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.inputMode != modeNormal {
+		t.Fatal("expected normal mode")
+	}
+	if len(mockProv.UpdatedDescriptions) != 1 {
+		t.Fatalf("expected 1 update, got %d", len(mockProv.UpdatedDescriptions))
+	}
+	if mockProv.UpdatedDescriptions[0].Title != "Refactor auth handling" {
+		t.Errorf("expected new title, got %q", mockProv.UpdatedDescriptions[0].Title)
+	}
+
+	assertGolden(t, "editpr_done", snapshot(app))
+}
+
+// --- Scenario 21: Remote comment edit ---
+
+func TestScenarioRemoteCommentEdit(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a remote comment by the reviewer.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-edit1",
+		Content:    "Original comment text",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "testuser",
+		ExternalID: "ext-edit1",
+		CreatedAt:  time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+	})
+	app.rebuildAnnotations()
+
+	assertGolden(t, "remote_edit_before", snapshot(app))
+
+	// Move to comment and edit.
+	idx := findLineComment(app, 2)
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('i'))
+
+	// Clear and type new content.
+	for range app.commentBuffer {
+		app = sendKeys(app, keySpecial(tea.KeyBackspace))
+	}
+	app = typeString(app, "Updated remote comment")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if len(mockProv.EditedComments) != 1 {
+		t.Fatalf("expected 1 edited comment, got %d", len(mockProv.EditedComments))
+	}
+
+	assertGolden(t, "remote_edit_after", snapshot(app))
+}
+
+// --- Scenario 22: Refresh updates outdated status ---
+
+func TestScenarioRefreshOutdated(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add two remote comments.
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-fresh",
+		Content:    "This is current",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "reviewer-bob",
+		ExternalID: "ext-fresh",
+		IsOutdated: false,
+		CreatedAt:  time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+	})
+	fr.AddLineComment(11, model.Comment{
+		ID:         "ext-stale",
+		Content:    "This will become outdated",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "reviewer-carol",
+		ExternalID: "ext-stale",
+		IsOutdated: false,
+		CreatedAt:  time.Date(2025, 1, 15, 10, 35, 0, 0, time.UTC),
+	})
+	app.rebuildAnnotations()
+
+	assertGolden(t, "outdated_before", snapshot(app))
+
+	// Refresh: ext-stale becomes outdated, ext-fresh stays current.
+	mockProv.SetNextRefresh(&provider.RefreshResult{
+		Request: &mockProv.Request,
+		AllComments: []provider.Comment{
+			{ExternalID: "ext-fresh", Author: "reviewer-bob", Body: "This is current", Path: "auth/handler.go", Line: 2, Side: "new", IsOutdated: false},
+			{ExternalID: "ext-stale", Author: "reviewer-carol", Body: "This will become outdated", Path: "auth/handler.go", Line: 11, Side: "new", IsOutdated: true},
+		},
+	})
+
+	app.refreshFromProvider()
+
+	if fr.LineComments[2][0].IsOutdated {
+		t.Error("ext-fresh should not be outdated")
+	}
+	if !fr.LineComments[11][0].IsOutdated {
+		t.Error("ext-stale should be outdated after refresh")
+	}
+
+	assertGolden(t, "outdated_after", snapshot(app))
+}
+
 // --- Scenario 17: Horizontal scroll ---
 
 func TestScenarioHorizontalScroll(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/pgavlin/crtea/internal/testutil"
 	"github.com/pgavlin/crtea/model"
@@ -1254,5 +1255,85 @@ func TestCommitListHeight(t *testing.T) {
 	app.showDescription = true
 	if h := app.commitListHeight(); h != 0 {
 		t.Fatalf("expected 0 when showing description, got %d", h)
+	}
+}
+
+// --- Draft PR status bar ---
+
+func TestStatusBarShowsDraftIndicator(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Provider = &model.ProviderInfo{Name: "mock", ID: "42"}
+	app.session.IsDraft = true
+
+	bar := app.renderStatusBar()
+	stripped := ansi.Strip(bar)
+	if !strings.Contains(stripped, "[DRAFT]") {
+		t.Errorf("expected [DRAFT] in status bar, got %q", stripped)
+	}
+}
+
+func TestStatusBarNoDraftWhenNotDraft(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Provider = &model.ProviderInfo{Name: "mock", ID: "42"}
+	app.session.IsDraft = false
+
+	bar := app.renderStatusBar()
+	stripped := ansi.Strip(bar)
+	if strings.Contains(stripped, "[DRAFT]") {
+		t.Errorf("should not show [DRAFT] when not draft, got %q", stripped)
+	}
+}
+
+// --- Resolved badge on comments ---
+
+func TestCommentShowsResolvedBadge(t *testing.T) {
+	app := newTestApp(t)
+	fr := app.session.GetOrCreateFileReview("a.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "r1",
+		Content:    "Resolved comment",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		ThreadID:   "thread-1",
+		IsResolved: true,
+	})
+	app.rebuildAnnotations()
+
+	view := app.View()
+	stripped := ansi.Strip(view.Content)
+	if !strings.Contains(stripped, "[resolved]") {
+		t.Error("expected [resolved] badge in view for resolved comment")
+	}
+}
+
+func TestCommentShowsOutdatedBadge(t *testing.T) {
+	app := newTestApp(t)
+	fr := app.session.GetOrCreateFileReview("a.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "o1",
+		Content:    "Outdated comment",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		IsOutdated: true,
+	})
+	app.rebuildAnnotations()
+
+	view := app.View()
+	stripped := ansi.Strip(view.Content)
+	if !strings.Contains(stripped, "[outdated]") {
+		t.Error("expected [outdated] badge in view for outdated comment")
+	}
+}
+
+// --- Footer for modeEditPR ---
+
+func TestFooterEditPRMode(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeEditPR
+
+	view := app.View()
+	stripped := ansi.Strip(view.Content)
+	if !strings.Contains(stripped, "Enter: save") {
+		t.Error("expected 'Enter: save' in footer for modeEditPR")
 	}
 }
