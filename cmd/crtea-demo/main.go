@@ -24,8 +24,8 @@ type appWrapper struct {
 	session *model.ReviewSession
 }
 
-func (w *appWrapper) Init() tea.Cmd   { return w.app.Init() }
-func (w *appWrapper) View() tea.View   { return w.app.View() }
+func (w *appWrapper) Init() tea.Cmd  { return w.app.Init() }
+func (w *appWrapper) View() tea.View { return w.app.View() }
 func (w *appWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:

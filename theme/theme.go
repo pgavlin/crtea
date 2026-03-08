@@ -58,6 +58,10 @@ type Theme struct {
 	MessageErrorFg color.Color
 	MessageErrorBg color.Color
 
+	// Search
+	SearchMatch   color.Color
+	SearchMatchFg color.Color
+
 	// Mode indicator
 	ModeFg color.Color
 	ModeBg color.Color
@@ -112,6 +116,9 @@ func Dark() Theme {
 		MessageErrorFg: c("#1e1e2e"),
 		MessageErrorBg: c("#f38ba8"),
 
+		SearchMatch:   c("#f9e2af"),
+		SearchMatchFg: c("#1e1e2e"),
+
 		ModeFg: c("#1e1e2e"),
 		ModeBg: c("#89b4fa"),
 	}
@@ -161,6 +168,9 @@ func GlamourDark() Theme {
 		MessageWarnBg:  c("#FF875F"),
 		MessageErrorFg: c("#373737"),
 		MessageErrorBg: c("#FD5B5B"),
+
+		SearchMatch:   c("#FF875F"),
+		SearchMatchFg: c("#373737"),
 
 		ModeFg: c("#373737"),
 		ModeBg: c("#00AAFF"),
@@ -212,6 +222,9 @@ func GlamourLight() Theme {
 		MessageErrorFg: c("#F1F1F1"),
 		MessageErrorBg: c("#FF5555"),
 
+		SearchMatch:   c("#FF875F"),
+		SearchMatchFg: c("#F1F1F1"),
+
 		ModeFg: c("#F1F1F1"),
 		ModeBg: c("#279EFC"),
 	}
@@ -261,6 +274,9 @@ func Light() Theme {
 		MessageWarnBg:  c("#df8e1d"),
 		MessageErrorFg: c("#eff1f5"),
 		MessageErrorBg: c("#d20f39"),
+
+		SearchMatch:   c("#df8e1d"),
+		SearchMatchFg: c("#eff1f5"),
 
 		ModeFg: c("#eff1f5"),
 		ModeBg: c("#1e66f5"),
