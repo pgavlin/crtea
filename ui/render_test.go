@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/pgavlin/crtea/internal/testutil"
@@ -1053,6 +1054,53 @@ func TestRenderDescriptionFocused(t *testing.T) {
 	output := app.renderDescription(120, 5)
 	if !strings.Contains(output, "Test description") {
 		t.Error("should show description text")
+	}
+}
+
+func TestRenderDescriptionWrapsLongLines(t *testing.T) {
+	app := newTestApp(t)
+	// Create a description longer than 40 chars
+	app.session.Description = "This is a very long description line that should definitely be wrapped when rendered in a narrow panel"
+	app.showDescription = true
+
+	output := app.renderDescription(40, 10)
+	lines := strings.Split(output, "\n")
+	// With wrapping, the text should span multiple content lines (not just 1 + separator)
+	contentLines := 0
+	for _, line := range lines {
+		stripped := strings.TrimSpace(ansi.Strip(line))
+		if stripped != "" && stripped != strings.Repeat("─", len(stripped)) {
+			contentLines++
+		}
+	}
+	if contentLines < 2 {
+		t.Errorf("expected long description to wrap into multiple lines at width 40, got %d content lines", contentLines)
+	}
+}
+
+func TestWrapLine(t *testing.T) {
+	tests := []struct {
+		input string
+		width int
+		want  int // expected number of output lines
+	}{
+		{"short", 80, 1},
+		{"hello world foo bar", 10, 3},
+		{"abcdefghij", 5, 2},
+		{"", 80, 1},
+		{"one two three four five six", 15, 2},
+	}
+	for _, tt := range tests {
+		lines := wrapLine(tt.input, tt.width)
+		if len(lines) != tt.want {
+			t.Errorf("wrapLine(%q, %d) = %d lines %v, want %d", tt.input, tt.width, len(lines), lines, tt.want)
+		}
+		// Every line must fit within width
+		for _, line := range lines {
+			if lipgloss.Width(line) > tt.width {
+				t.Errorf("wrapLine(%q, %d): line %q exceeds width (%d > %d)", tt.input, tt.width, line, lipgloss.Width(line), tt.width)
+			}
+		}
 	}
 }
 

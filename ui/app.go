@@ -645,7 +645,11 @@ func (a *App) descriptionLineCount() int {
 	if a.session == nil || a.session.Description == "" {
 		return 1
 	}
-	return strings.Count(a.session.Description, "\n") + 1
+	wrapWidth := a.width - 2 // indent
+	if wrapWidth < 10 {
+		wrapWidth = 10
+	}
+	return len(wrapText(a.session.Description, wrapWidth))
 }
 
 // mergeEnabledDiffs combines per-commit diffs for all enabled commits.

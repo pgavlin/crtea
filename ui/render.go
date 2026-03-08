@@ -81,7 +81,14 @@ func (a *App) renderDescription(width, height int) string {
 	if a.session != nil {
 		desc = a.session.Description
 	}
-	descLines := strings.Split(desc, "\n")
+
+	// Wrap text to fit within the panel (minus indent)
+	indent := "  "
+	wrapWidth := width - lipgloss.Width(indent)
+	if wrapWidth < 10 {
+		wrapWidth = 10
+	}
+	descLines := wrapText(desc, wrapWidth)
 
 	visibleLines := height - 1 // last line is separator
 	if visibleLines < 1 {
@@ -105,8 +112,7 @@ func (a *App) renderDescription(width, height int) string {
 
 	var lines []string
 	for i := a.descScroll; i < scrollEnd; i++ {
-		prefix := "  "
-		line := prefix + contentStyle.Render(descLines[i])
+		line := indent + contentStyle.Render(descLines[i])
 		lines = append(lines, truncateOrPad(line, width))
 	}
 
@@ -1472,6 +1478,70 @@ func expandTabs(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// wrapLine splits a single line into multiple lines so that each fits within
+// the given width. It breaks at word boundaries when possible, falling back to
+// hard breaks for very long words.
+func wrapLine(s string, width int) []string {
+	if width <= 0 {
+		return []string{s}
+	}
+	if lipgloss.Width(s) <= width {
+		return []string{s}
+	}
+
+	var lines []string
+	for len(s) > 0 {
+		if lipgloss.Width(s) <= width {
+			lines = append(lines, s)
+			break
+		}
+
+		// Find the last space within width
+		breakAt := -1
+		for i, r := range s {
+			if lipgloss.Width(s[:i+len(string(r))]) > width {
+				break
+			}
+			if r == ' ' {
+				breakAt = i
+			}
+		}
+
+		if breakAt > 0 {
+			lines = append(lines, s[:breakAt])
+			s = s[breakAt+1:] // skip the space
+		} else {
+			// No space found; hard break at width
+			cut := 0
+			for i := range s {
+				if lipgloss.Width(s[:i+1]) > width {
+					break
+				}
+				cut = i + 1
+			}
+			if cut == 0 {
+				cut = 1 // at least one character to avoid infinite loop
+			}
+			lines = append(lines, s[:cut])
+			s = s[cut:]
+		}
+	}
+
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+// wrapText wraps a multi-line string so each output line fits within width.
+func wrapText(text string, width int) []string {
+	var result []string
+	for _, line := range strings.Split(text, "\n") {
+		result = append(result, wrapLine(line, width)...)
+	}
+	return result
 }
 
 func truncateOrPad(s string, width int) string {
