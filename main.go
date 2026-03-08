@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/urfave/cli/v3"
 
+	"github.com/pgavlin/crtea/logging"
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/persistence"
 	gh "github.com/pgavlin/crtea/provider/github"
@@ -88,18 +90,30 @@ func main() {
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {
+	// Initialize logging
+	logFile, err := logging.Init()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)
+	} else {
+		defer logFile.Close()
+	}
+	slog.Info("crtea starting")
+
 	dir, err := os.Getwd()
 	if err != nil {
+		slog.Error("failed to get working directory", "error", err)
 		return err
 	}
 
 	backend, err := vcs.NewGitBackend(dir)
 	if err != nil {
+		slog.Error("failed to initialize git backend", "dir", dir, "error", err)
 		return err
 	}
 
 	store, err := persistence.NewFileStore()
 	if err != nil {
+		slog.Error("failed to initialize session store", "error", err)
 		return fmt.Errorf("initializing session store: %w", err)
 	}
 
@@ -112,6 +126,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		info := backend.Info()
 		owner, repo, err := gh.DetectRemote(info.RootPath)
 		if err != nil {
+			slog.Error("failed to detect GitHub remote", "path", info.RootPath, "error", err)
 			return fmt.Errorf("detecting GitHub remote: %w", err)
 		}
 		p := gh.New(owner, repo)
@@ -122,6 +137,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		// Get commits in the range
 		commits, err := backend.GetCommitsInRange(revisions)
 		if err != nil {
+			slog.Error("failed to list commits in range", "revisions", revisions, "error", err)
 			return fmt.Errorf("listing commits: %w", err)
 		}
 
@@ -174,12 +190,15 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	p := tea.NewProgram(w)
 
 	if _, err := p.Run(); err != nil {
+		slog.Error("tea program error", "error", err)
 		return err
 	}
 	if w.err != nil {
+		slog.Error("application error", "error", w.err)
 		return w.err
 	}
 
+	slog.Info("crtea exiting")
 	return nil
 }
 

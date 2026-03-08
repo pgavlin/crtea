@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -85,6 +86,7 @@ func (fs *FileStore) LoadLatest(repoPath, branchName string, diffSource model.Di
 		}
 		info, err := entry.Info()
 		if err != nil {
+			slog.Debug("skipping session file", "name", entry.Name(), "error", err)
 			continue
 		}
 		candidates = append(candidates, candidate{
@@ -100,10 +102,12 @@ func (fs *FileStore) LoadLatest(repoPath, branchName string, diffSource model.Di
 	for _, c := range candidates {
 		data, err := os.ReadFile(c.path)
 		if err != nil {
+			slog.Debug("failed to read session file", "path", c.path, "error", err)
 			continue
 		}
 		var session model.ReviewSession
 		if err := json.Unmarshal(data, &session); err != nil {
+			slog.Debug("failed to parse session file", "path", c.path, "error", err)
 			continue
 		}
 		if session.BranchName == branchName && session.DiffSource == diffSource {

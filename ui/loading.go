@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -66,20 +67,25 @@ func (a *App) loadProviderCmd() tea.Cmd {
 	store := a.store
 
 	return func() tea.Msg {
+		slog.Info("loading provider data", "provider", p.Name(), "id", id)
+
 		// Fetch review request metadata
 		rr, err := p.GetReviewRequest(id)
 		if err != nil {
+			slog.Error("failed to fetch review request", "id", id, "error", err)
 			return providerLoadedMsg{err: fmt.Errorf("fetching review request: %w", err)}
 		}
 
 		// Fetch diff
 		diffText, err := p.GetDiff(id)
 		if err != nil {
+			slog.Error("failed to fetch diff", "id", id, "error", err)
 			return providerLoadedMsg{err: fmt.Errorf("fetching diff: %w", err)}
 		}
 
 		files := vcs.ParseDiff(diffText)
 		if len(files) == 0 {
+			slog.Warn("no changes found in diff", "id", id)
 			return providerLoadedMsg{err: fmt.Errorf("no changes to review")}
 		}
 		hl.HighlightFiles(files)
@@ -109,10 +115,15 @@ func (a *App) loadProviderCmd() tea.Cmd {
 		// Fetch authenticated user
 		if user, err := p.GetAuthenticatedUser(); err == nil {
 			session.Reviewer = user
+		} else {
+			slog.Warn("failed to fetch authenticated user", "error", err)
 		}
 
 		// Fetch existing reviews
-		reviews, _ := p.ListReviews(id)
+		reviews, err := p.ListReviews(id)
+		if err != nil {
+			slog.Warn("failed to fetch reviews", "id", id, "error", err)
+		}
 		if len(reviews) > 0 {
 			session.Reviews = make([]model.OverallReview, len(reviews))
 			for i, r := range reviews {
@@ -121,7 +132,10 @@ func (a *App) loadProviderCmd() tea.Cmd {
 		}
 
 		// Fetch existing inline comments
-		comments, _ := p.ListComments(id)
+		comments, err := p.ListComments(id)
+		if err != nil {
+			slog.Warn("failed to fetch comments", "id", id, "error", err)
+		}
 		if len(comments) > 0 {
 			imported := provider.ImportComments(comments)
 			for path, lineComments := range imported {
@@ -131,7 +145,10 @@ func (a *App) loadProviderCmd() tea.Cmd {
 		}
 
 		// Fetch conversation
-		convComments, _ := p.ListConversation(id)
+		convComments, err := p.ListConversation(id)
+		if err != nil {
+			slog.Warn("failed to fetch conversation", "id", id, "error", err)
+		}
 		if len(convComments) > 0 {
 			session.Conversation = provider.ImportConversation(convComments)
 		}
@@ -156,9 +173,15 @@ func (a *App) loadProviderCmd() tea.Cmd {
 					cf := vcs.ParseDiff(cdiff)
 					hl.HighlightFiles(cf)
 					commitDiffs[c.ID] = cf
+				} else {
+					slog.Warn("failed to fetch commit diff", "commit", c.ShortID, "error", err)
 				}
 			}
+		} else if err != nil {
+			slog.Warn("failed to fetch commits", "id", id, "error", err)
 		}
+
+		slog.Info("provider data loaded", "files", len(files), "commits", len(commitInfos), "comments", len(comments))
 
 		return providerLoadedMsg{
 			session:  session,
@@ -174,6 +197,7 @@ func (a *App) loadProviderCmd() tea.Cmd {
 // handleProviderLoaded transitions from loading phase to review phase.
 func (a *App) handleProviderLoaded(msg providerLoadedMsg) tea.Cmd {
 	if msg.err != nil {
+		slog.Error("provider loading failed", "error", msg.err)
 		return func() tea.Msg { return DoneMsg{Err: msg.err} }
 	}
 

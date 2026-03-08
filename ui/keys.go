@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -808,6 +809,7 @@ func (a *App) expandGap(gid gapID) {
 	}
 	lines, err := a.vcs.FetchContextLines(file.DisplayPath(), file.Status, startLine, endLine)
 	if err != nil {
+		slog.Error("failed to expand context", "file", file.DisplayPath(), "error", err)
 		a.setMessage("Failed to expand context: "+err.Error(), messageError)
 		return
 	}
@@ -1051,6 +1053,7 @@ func (a *App) saveComment() {
 				if c.ID == a.editingID {
 					if c.ExternalID != "" && a.provider != nil {
 						if err := a.provider.EditComment(a.providerID, c.ExternalID, a.commentBuffer); err != nil {
+							slog.Error("remote comment edit failed", "commentID", c.ExternalID, "error", err)
 							a.setMessage("Remote edit failed: "+err.Error(), messageError)
 							return
 						}
@@ -1066,6 +1069,7 @@ func (a *App) saveComment() {
 					if c.ID == a.editingID {
 						if c.ExternalID != "" && a.provider != nil {
 							if err := a.provider.EditComment(a.providerID, c.ExternalID, a.commentBuffer); err != nil {
+								slog.Error("remote comment edit failed", "commentID", c.ExternalID, "error", err)
 								a.setMessage("Remote edit failed: "+err.Error(), messageError)
 								return
 							}
@@ -1132,6 +1136,7 @@ func (a *App) deleteCommentAtCursor() {
 			}
 			if c.ExternalID != "" && a.provider != nil {
 				if err := a.provider.DeleteComment(a.providerID, c.ExternalID); err != nil {
+					slog.Error("remote comment delete failed", "commentID", c.ExternalID, "error", err)
 					a.setMessage("Remote delete failed: "+err.Error(), messageError)
 					return
 				}
@@ -1151,6 +1156,7 @@ func (a *App) deleteCommentAtCursor() {
 			}
 			if c.ExternalID != "" && a.provider != nil {
 				if err := a.provider.DeleteComment(a.providerID, c.ExternalID); err != nil {
+					slog.Error("remote comment delete failed", "commentID", c.ExternalID, "error", err)
 					a.setMessage("Remote delete failed: "+err.Error(), messageError)
 					return
 				}
@@ -1278,6 +1284,7 @@ func (a *App) saveConversationComment() {
 	}
 	if a.provider != nil {
 		if err := a.provider.PostConversationComment(a.providerID, body); err != nil {
+			slog.Error("failed to post conversation comment", "error", err)
 			a.setMessage("Post failed: "+err.Error(), messageError)
 			return
 		}
@@ -1365,6 +1372,7 @@ func (a App) submitBugReport() (tea.Model, tea.Cmd) {
 
 	path, err := bugreport.Write(report, a.session, screenContent)
 	if err != nil {
+		slog.Error("failed to write bug report", "error", err)
 		a.setMessage("Bug report failed: "+err.Error(), messageError)
 		a.inputMode = modeNormal
 		a.bugBuffer = ""
@@ -1468,6 +1476,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		return func() tea.Msg { return DoneMsg{Session: a.session} }
 	case "w", "write":
 		if _, err := a.store.Save(a.session); err != nil {
+			slog.Error("failed to save session", "error", err)
 			a.setMessage("Save failed: "+err.Error(), messageError)
 		} else {
 			a.setMessage("Session saved", messageInfo)
@@ -1485,6 +1494,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		}
 		files, err := a.vcs.GetWorkingTreeDiff()
 		if err != nil {
+			slog.Error("failed to reload working tree diff", "error", err)
 			a.setMessage("Reload failed: "+err.Error(), messageError)
 			return nil
 		}
@@ -1637,6 +1647,7 @@ func (a *App) submitToProvider() tea.Cmd {
 			Comments: drafts,
 		}
 		if err := a.provider.SubmitReview(a.providerID, req); err != nil {
+			slog.Error("failed to submit review", "state", state, "error", err)
 			a.setMessage("Submit failed: "+err.Error(), messageError)
 			return nil
 		}
@@ -1685,6 +1696,7 @@ func (a *App) refreshFromProvider() tea.Cmd {
 
 	result, err := a.provider.Refresh(a.providerID)
 	if err != nil {
+		slog.Error("failed to refresh from provider", "error", err)
 		a.setMessage("Refresh failed: "+err.Error(), messageError)
 		return nil
 	}
@@ -1809,21 +1821,46 @@ func (a *App) toggleResolveThread() tea.Cmd {
 
 	if comment.IsResolved {
 		if err := a.provider.UnresolveThread(a.providerID, comment.ThreadID); err != nil {
+			slog.Error("failed to unresolve thread", "threadID", comment.ThreadID, "error", err)
 			a.setMessage("Unresolve failed: "+err.Error(), messageError)
 			return nil
 		}
-		comment.IsResolved = false
+		a.setThreadResolved(comment.ThreadID, false)
 		a.setMessage("Thread unresolved", messageInfo)
 	} else {
 		if err := a.provider.ResolveThread(a.providerID, comment.ThreadID); err != nil {
+			slog.Error("failed to resolve thread", "threadID", comment.ThreadID, "error", err)
 			a.setMessage("Resolve failed: "+err.Error(), messageError)
 			return nil
 		}
-		comment.IsResolved = true
+		a.setThreadResolved(comment.ThreadID, true)
 		a.setMessage("Thread resolved", messageInfo)
 	}
 	a.rebuildAnnotations()
 	return nil
+}
+
+// setThreadResolved updates IsResolved on all comments sharing the given
+// thread ID across every file in the session.
+func (a *App) setThreadResolved(threadID string, resolved bool) {
+	if a.session == nil {
+		return
+	}
+	for _, fr := range a.session.Files {
+		for i := range fr.FileComments {
+			if fr.FileComments[i].ThreadID == threadID {
+				fr.FileComments[i].IsResolved = resolved
+			}
+		}
+		for lineNo, comments := range fr.LineComments {
+			for i := range comments {
+				if comments[i].ThreadID == threadID {
+					comments[i].IsResolved = resolved
+				}
+			}
+			fr.LineComments[lineNo] = comments
+		}
+	}
 }
 
 func (a *App) markReadyForReview() tea.Cmd {
@@ -1838,6 +1875,7 @@ func (a *App) markReadyForReview() tea.Cmd {
 	a.confirmPrompt = "Mark PR as ready for review?"
 	a.confirmCallback = func(a *App) tea.Cmd {
 		if err := a.provider.MarkReadyForReview(a.providerID); err != nil {
+			slog.Error("failed to mark PR as ready", "error", err)
 			a.setMessage("Failed: "+err.Error(), messageError)
 			return nil
 		}
@@ -1893,6 +1931,7 @@ func (a *App) saveEditPR() tea.Cmd {
 	}
 
 	if err := a.provider.UpdateReviewRequest(a.providerID, title, body); err != nil {
+		slog.Error("failed to update PR", "error", err)
 		a.setMessage("Update failed: "+err.Error(), messageError)
 		return nil
 	}

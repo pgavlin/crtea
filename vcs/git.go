@@ -3,6 +3,7 @@ package vcs
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -199,6 +200,7 @@ func gitOutput(dir string, args ...string) (string, error) {
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
+		slog.Debug("git command failed", "args", args, "dir", dir, "error", err)
 		return "", err
 	}
 	return string(out), nil

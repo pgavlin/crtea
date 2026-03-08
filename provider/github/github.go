@@ -3,6 +3,7 @@ package github
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -45,8 +46,10 @@ func ghAPI(args ...string) ([]byte, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
+			slog.Debug("gh api call failed", "args", args, "stderr", string(ee.Stderr))
 			return nil, fmt.Errorf("gh api %s: %s", strings.Join(args, " "), string(ee.Stderr))
 		}
+		slog.Debug("gh api call failed", "args", args, "error", err)
 		return nil, fmt.Errorf("gh api: %w", err)
 	}
 	return out, nil
@@ -124,6 +127,7 @@ func (g *GitHub) ListCommits(id string) ([]provider.Commit, error) {
 	for _, r := range raw {
 		var gc ghCommit
 		if err := json.Unmarshal(r, &gc); err != nil {
+			slog.Debug("skipping malformed commit", "error", err)
 			continue
 		}
 		commits = append(commits, gc.toProvider())
@@ -153,6 +157,7 @@ func (g *GitHub) ListReviews(id string) ([]provider.Review, error) {
 	for _, r := range raw {
 		var gr ghReview
 		if err := json.Unmarshal(r, &gr); err != nil {
+			slog.Debug("skipping malformed review", "error", err)
 			continue
 		}
 		reviews = append(reviews, gr.toProvider())
@@ -169,6 +174,7 @@ func (g *GitHub) ListComments(id string) ([]provider.Comment, error) {
 	for _, r := range raw {
 		var gc ghComment
 		if err := json.Unmarshal(r, &gc); err != nil {
+			slog.Debug("skipping malformed comment", "error", err)
 			continue
 		}
 		comments = append(comments, gc.toProvider())
@@ -176,6 +182,9 @@ func (g *GitHub) ListComments(id string) ([]provider.Comment, error) {
 
 	// Fetch thread resolution status via GraphQL and apply to comments.
 	threads, err := g.fetchThreadResolution(id)
+	if err != nil {
+		slog.Warn("failed to fetch thread resolution status", "id", id, "error", err)
+	}
 	if err == nil {
 		// Build map from root comment ID to thread info
 		rootThreads := make(map[string]threadInfo)
@@ -221,6 +230,7 @@ func (g *GitHub) ListConversation(id string) ([]provider.ConversationComment, er
 	for _, r := range raw {
 		var gc ghIssueComment
 		if err := json.Unmarshal(r, &gc); err != nil {
+			slog.Debug("skipping malformed conversation comment", "error", err)
 			continue
 		}
 		comments = append(comments, gc.toProvider())
@@ -325,7 +335,7 @@ func (g *GitHub) DeleteComment(id string, commentID string) error {
 }
 
 func (g *GitHub) ResolveThread(id string, threadID string) error {
-	query := `mutation($threadId: ID!) { resolveReviewThread(input: {threadId: $threadId}) { reviewThread { isResolved } } }`
+	query := `mutation($threadId: ID!) { resolveReviewThread(input: {threadId: $threadId}) { thread { isResolved } } }`
 	_, err := ghAPI("graphql", "-f", "query="+query, "-f", "threadId="+threadID)
 	if err != nil {
 		return fmt.Errorf("resolving thread: %w", err)
@@ -334,7 +344,7 @@ func (g *GitHub) ResolveThread(id string, threadID string) error {
 }
 
 func (g *GitHub) UnresolveThread(id string, threadID string) error {
-	query := `mutation($threadId: ID!) { unresolveReviewThread(input: {threadId: $threadId}) { reviewThread { isResolved } } }`
+	query := `mutation($threadId: ID!) { unresolveReviewThread(input: {threadId: $threadId}) { thread { isResolved } } }`
 	_, err := ghAPI("graphql", "-f", "query="+query, "-f", "threadId="+threadID)
 	if err != nil {
 		return fmt.Errorf("unresolving thread: %w", err)
@@ -478,6 +488,9 @@ func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error) {
 
 	// Find new comments
 	comments, err := g.ListComments(id)
+	if err != nil {
+		slog.Warn("refresh: failed to list comments", "id", id, "error", err)
+	}
 	if err == nil {
 		result.AllComments = comments
 		newIDs := make(map[string]bool, len(comments))
@@ -492,6 +505,9 @@ func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error) {
 
 	// Find new reviews
 	reviews, err := g.ListReviews(id)
+	if err != nil {
+		slog.Warn("refresh: failed to list reviews", "id", id, "error", err)
+	}
 	if err == nil {
 		newIDs := make(map[string]bool, len(reviews))
 		for _, r := range reviews {
@@ -505,6 +521,9 @@ func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error) {
 
 	// Find new conversation comments
 	conv, err := g.ListConversation(id)
+	if err != nil {
+		slog.Warn("refresh: failed to list conversation", "id", id, "error", err)
+	}
 	if err == nil {
 		newIDs := make(map[string]bool, len(conv))
 		for _, c := range conv {
