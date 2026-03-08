@@ -39,10 +39,8 @@ func (w *appWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ui.ClipboardMsg:
 		return w, tea.SetClipboard(msg.Content)
 	}
-	m, cmd := w.app.Update(msg)
-	if a, ok := m.(*ui.App); ok {
-		w.app = *a
-	}
+	var cmd tea.Cmd
+	w.app, cmd = w.app.Update(msg)
 	return w, cmd
 }
 
@@ -145,9 +143,7 @@ func run() error {
 	}
 
 	// Create app — pass nil backend since we don't need VCS operations
-	app := ui.NewApp(logger, nil, files, session, th, highlighter, store)
-	app.SetProvider(m, "42")
-	app.SetCommits(commitInfos, commitDiffs)
+	app := ui.NewApp(nil, files, session, th, ui.WithLogger(logger), ui.WithHighlighter(highlighter), ui.WithStore(store), ui.WithProvider(m, "42"), ui.WithCommits(commitInfos, commitDiffs))
 
 	w := &appWrapper{app: app}
 	p := tea.NewProgram(w)

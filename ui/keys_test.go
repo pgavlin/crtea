@@ -52,7 +52,7 @@ func newTestApp(t *testing.T) *App {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(nil, files, session, theme.Dark(), WithLogger(testLogger))
 	app.SetSize(120, 40)
 	return &app
 }
@@ -110,7 +110,7 @@ func newTwoFileApp(t *testing.T) *App {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(nil, files, session, theme.Dark(), WithLogger(testLogger))
 	app.SetSize(120, 40)
 	return &app
 }
@@ -135,11 +135,11 @@ func upperKey(lower, upper rune) tea.KeyPressMsg {
 
 // sendKeys sends a sequence of key messages through the app, returning the final state.
 func sendKeys(app *App, keys ...tea.KeyPressMsg) *App {
-	var m tea.Model = app
+	a := *app
 	for _, k := range keys {
-		m, _ = m.Update(k)
+		a, _ = a.Update(k)
 	}
-	return m.(*App)
+	return &a
 }
 
 // --- Test harness validation ---
@@ -1790,8 +1790,8 @@ func TestExportWithComments(t *testing.T) {
 	app = sendKeys(app, keyPress('c'), keyPress('l'), keyPress('i'), keyPress('p'))
 
 	// Capture the command returned by executeCommand
-	m, cmd := app.Update(keySpecial(tea.KeyEnter))
-	app = m.(*App)
+	a, cmd := app.Update(keySpecial(tea.KeyEnter))
+	app = &a
 
 	if cmd == nil {
 		t.Fatal("export should return a command")
@@ -2027,7 +2027,7 @@ func newPickerApp(t *testing.T) *App {
 	}
 
 	store := testutil.NewMockStore()
-	app := NewPickerApp(testLogger, mockVCS, theme.Dark(), nil, store)
+	app := NewPickerApp(mockVCS, theme.Dark(), WithLogger(testLogger), WithStore(store))
 	app.SetSize(120, 40)
 	return &app
 }
@@ -2088,7 +2088,7 @@ func newVCSApp(t *testing.T) *App {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	app := NewApp(testLogger, mockVCS, files, session, theme.Dark(), nil, nil)
+	app := NewApp(mockVCS, files, session, theme.Dark(), WithLogger(testLogger))
 	app.SetSize(120, 40)
 	return &app
 }
@@ -2239,7 +2239,7 @@ func TestSetCommits(t *testing.T) {
 		"c1": {{OldPath: "f1.go", NewPath: "f1.go", Status: model.FileModified}},
 		"c2": {{OldPath: "f2.go", NewPath: "f2.go", Status: model.FileModified}},
 	}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 
 	if len(app.reviewCommits) != 2 {
 		t.Fatalf("expected 2 commits, got %d", len(app.reviewCommits))
@@ -2262,7 +2262,7 @@ func TestCommitListRender(t *testing.T) {
 		"c1": app.diffFiles,
 		"c2": app.diffFiles,
 	}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 
 	output := app.renderCommitList(120, 8)
 	if !strings.Contains(output, "Commit 1") {
@@ -2281,7 +2281,7 @@ func TestToggleCommitAtCursor(t *testing.T) {
 	diffs := map[string][]model.DiffFile{
 		"c1": app.diffFiles,
 	}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 	app.commitCursor = 0
 
 	app.toggleCommitAtCursor()
@@ -2304,7 +2304,7 @@ func TestAllCommitsEnabled(t *testing.T) {
 		"c1": app.diffFiles,
 		"c2": app.diffFiles,
 	}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 	if !app.allCommitsEnabled() {
 		t.Fatal("all commits should be enabled initially")
 	}
@@ -2333,7 +2333,7 @@ func TestMergeEnabledDiffs(t *testing.T) {
 		"c1": {f1},
 		"c2": {f2},
 	}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 
 	// Disable c2
 	delete(app.enabledCommits, "c2")
@@ -2358,7 +2358,7 @@ func TestRebuildFromCommits(t *testing.T) {
 	}
 	commits := []vcs.CommitInfo{{ID: "c1", ShortID: "c1"}}
 	diffs := map[string][]model.DiffFile{"c1": {f1}}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 
 	// When all enabled, uses combinedDiffFiles
 	app.rebuildFromCommits()
@@ -2378,7 +2378,7 @@ func TestTopPanelHeight(t *testing.T) {
 	// With commits
 	commits := []vcs.CommitInfo{{ID: "c1", ShortID: "c1"}}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 	h := app.topPanelHeight()
 	if h < 2 {
 		t.Fatalf("expected at least 2 for 1 commit + separator, got %d", h)
@@ -2475,7 +2475,7 @@ func TestViewWithDescriptionPanel(t *testing.T) {
 	app.showDescription = true
 	commits := []vcs.CommitInfo{{ID: "c1", ShortID: "c1"}}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 
 	view := app.View()
 	if !strings.Contains(view.Content, "PR description text") {
@@ -2714,7 +2714,7 @@ func TestCommitListCursorNavigation(t *testing.T) {
 		"c2": app.diffFiles,
 		"c3": app.diffFiles,
 	}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 	app.focusedPanel = panelCommitList
 
 	// j moves down
@@ -2776,7 +2776,7 @@ func TestReplyToLocalComment(t *testing.T) {
 func TestSetProvider(t *testing.T) {
 	app := newTestApp(t)
 	m := mock.New()
-	app.SetProvider(m, "42")
+	app.provider = m; app.providerID = "42"
 	if app.provider == nil {
 		t.Fatal("provider should be set")
 	}
@@ -2793,7 +2793,7 @@ func TestViewWithCommitListPanel(t *testing.T) {
 		{ID: "c1", ShortID: "c1", Summary: "My commit", Author: "me", Time: testTime},
 	}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 
 	view := app.View()
 	if !strings.Contains(view.Content, "My commit") {

@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,45 +74,33 @@ func TestLoadLatestNoMatch(t *testing.T) {
 	store.Save(session)
 
 	// Different branch
-	loaded, err := store.LoadLatest("/repo", "feature", model.DiffWorkingTree)
-	if err != nil {
-		t.Fatalf("LoadLatest() error: %v", err)
-	}
-	if loaded != nil {
-		t.Error("expected nil for non-matching branch")
+	_, err := store.LoadLatest("/repo", "feature", model.DiffWorkingTree)
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("LoadLatest() error = %v, want ErrSessionNotFound", err)
 	}
 
 	// Different diff source
-	loaded, err = store.LoadLatest("/repo", "main", model.DiffCommitRange)
-	if err != nil {
-		t.Fatalf("LoadLatest() error: %v", err)
-	}
-	if loaded != nil {
-		t.Error("expected nil for non-matching diff source")
+	_, err = store.LoadLatest("/repo", "main", model.DiffCommitRange)
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("LoadLatest() error = %v, want ErrSessionNotFound", err)
 	}
 }
 
 func TestLoadLatestEmptyDir(t *testing.T) {
 	store := newTestStore(t)
 
-	loaded, err := store.LoadLatest("/repo", "main", model.DiffWorkingTree)
-	if err != nil {
-		t.Fatalf("LoadLatest() error: %v", err)
-	}
-	if loaded != nil {
-		t.Error("expected nil for empty store")
+	_, err := store.LoadLatest("/repo", "main", model.DiffWorkingTree)
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("LoadLatest() error = %v, want ErrSessionNotFound", err)
 	}
 }
 
 func TestLoadLatestNonexistentDir(t *testing.T) {
 	store := &FileStore{dir: filepath.Join(t.TempDir(), "nonexistent")}
 
-	loaded, err := store.LoadLatest("/repo", "main", model.DiffWorkingTree)
-	if err != nil {
-		t.Fatalf("LoadLatest() error: %v", err)
-	}
-	if loaded != nil {
-		t.Error("expected nil for nonexistent dir")
+	_, err := store.LoadLatest("/repo", "main", model.DiffWorkingTree)
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("LoadLatest() error = %v, want ErrSessionNotFound", err)
 	}
 }
 

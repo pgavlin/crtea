@@ -3,6 +3,7 @@ package persistence
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/pgavlin/crtea/model"
 )
+
+// ErrSessionNotFound is returned by LoadLatest when no matching session exists.
+var ErrSessionNotFound = errors.New("session not found")
 
 // Store defines the interface for session persistence.
 type Store interface {
@@ -68,7 +72,7 @@ func (fs *FileStore) LoadLatest(repoPath, branchName string, diffSource model.Di
 	entries, err := os.ReadDir(fs.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, ErrSessionNotFound
 		}
 		return nil, err
 	}
@@ -116,7 +120,7 @@ func (fs *FileStore) LoadLatest(repoPath, branchName string, diffSource model.Di
 		}
 	}
 
-	return nil, nil
+	return nil, ErrSessionNotFound
 }
 
 func repoFingerprint(repoPath string) string {

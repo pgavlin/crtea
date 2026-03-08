@@ -94,7 +94,7 @@ func (m *MockStore) LoadLatest(repoPath, branchName string, diffSource model.Dif
 	if s, ok := m.Sessions[repoPath]; ok {
 		return s, nil
 	}
-	return nil, nil
+	return nil, persistence.ErrSessionNotFound
 }
 
 // Verify interface compliance.

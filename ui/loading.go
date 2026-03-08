@@ -10,9 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/pgavlin/crtea/model"
-	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/provider"
-	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/vcs"
 )
@@ -36,20 +34,16 @@ type providerLoadedMsg struct {
 // NewProviderApp creates an App that starts in the loading phase and fetches
 // provider data asynchronously.
 func NewProviderApp(
-	log *slog.Logger,
 	backend vcs.Backend,
 	p provider.Provider,
 	id string,
 	th theme.Theme,
-	hl *syntax.Highlighter,
-	store persistence.Store,
+	opts ...Option,
 ) App {
-	return App{
-		log:           log,
+	app := App{
+		log:           slog.Default(),
 		vcs:           backend,
 		vcsInfo:       backend.Info(),
-		highlighter:   hl,
-		store:         store,
 		theme:         th,
 		phase:         phaseLoading,
 		loadingStatus: "Fetching pull request…",
@@ -58,6 +52,10 @@ func NewProviderApp(
 		expandedGaps:  make(map[gapID][]model.DiffLine),
 		collapsedDirs: make(map[string]bool),
 	}
+	for _, opt := range opts {
+		opt(&app)
+	}
+	return app
 }
 
 // loadProviderCmd returns a tea.Cmd that fetches all provider data in the background.
@@ -95,8 +93,8 @@ func (a *App) loadProviderCmd() tea.Cmd {
 
 		// Session
 		diffSource := model.DiffPullRequest
-		session, _ := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
-		if session == nil {
+		session, err := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
+		if err != nil {
 			session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 		}
 		session.Provider = &model.ProviderInfo{
@@ -216,7 +214,7 @@ func (a *App) handleProviderLoaded(msg providerLoadedMsg) tea.Cmd {
 	a.rebuildAnnotations()
 
 	if len(msg.commits) > 0 {
-		a.SetCommits(msg.commits, msg.diffs)
+		a.setCommits(msg.commits, msg.diffs)
 	}
 
 	return nil

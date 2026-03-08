@@ -69,7 +69,7 @@ func newMultiFileApp(t *testing.T) *App {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(nil, files, session, theme.Dark(), WithLogger(testLogger))
 	app.SetSize(120, 40)
 	return &app
 }
@@ -620,7 +620,7 @@ func TestRenderFileHeaderRename(t *testing.T) {
 	}
 	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
 	session.GetOrCreateFileReview("new_name.go", model.FileRenamed)
-	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(nil, files, session, theme.Dark(), WithLogger(testLogger))
 	app.SetSize(120, 40)
 
 	for _, ann := range app.annotations {
@@ -902,7 +902,7 @@ func TestRenderDiffLineWithSpans(t *testing.T) {
 		},
 	}
 	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
-	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(nil, files, session, theme.Dark(), WithLogger(testLogger))
 	app.SetSize(120, 40)
 
 	// Find the annotation for the addition line with spans
@@ -956,7 +956,7 @@ func TestRenderDiffLineWithSpansAndSearchHighlight(t *testing.T) {
 		},
 	}
 	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
-	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(nil, files, session, theme.Dark(), WithLogger(testLogger))
 	app.SetSize(120, 40)
 	app.searchHighlight = "main"
 
@@ -992,7 +992,7 @@ func TestRenderCommitListWithWorkTree(t *testing.T) {
 		"c1":        app.diffFiles,
 		worktreeKey: app.diffFiles,
 	}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 	app.enabledCommits[worktreeKey] = true
 
 	output := app.renderCommitList(120, 8)
@@ -1010,7 +1010,7 @@ func TestRenderCommitListFocused(t *testing.T) {
 		{ID: "c1", ShortID: "c1", Summary: "A commit", Author: "me", Time: testTime},
 	}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 	app.focusedPanel = panelCommitList
 
 	output := app.renderCommitList(120, 8)
@@ -1025,7 +1025,7 @@ func TestRenderCommitListNarrowWidth(t *testing.T) {
 		{ID: "c1", ShortID: "c1", Summary: "A very long commit summary that should be truncated", Author: "me", Time: testTime},
 	}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 
 	output := app.renderCommitList(50, 5)
 	if output == "" {
@@ -1156,7 +1156,7 @@ func TestNewAppWithHighlighter(t *testing.T) {
 	hl.HighlightFiles(files)
 
 	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
-	app := NewApp(testLogger, nil, files, session, theme.Dark(), hl, nil)
+	app := NewApp(nil, files, session, theme.Dark(), WithLogger(testLogger), WithHighlighter(hl))
 	app.SetSize(120, 40)
 
 	view := app.View()
@@ -1193,7 +1193,7 @@ func TestPickerConfirmCommitOnly(t *testing.T) {
 	}
 
 	store := testutil.NewMockStore()
-	app := NewPickerApp(testLogger, mockVCS, theme.Dark(), nil, store)
+	app := NewPickerApp(mockVCS, theme.Dark(), WithLogger(testLogger), WithStore(store))
 	app.SetSize(120, 40)
 
 	// Move to commit (index 1), select it, confirm

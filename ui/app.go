@@ -185,26 +185,69 @@ type App struct {
 	spinnerFrame  int    // index into spinner characters
 }
 
+// Option configures an App during construction.
+type Option func(*App)
+
+// WithLogger sets the logger. Defaults to slog.Default().
+func WithLogger(log *slog.Logger) Option {
+	return func(a *App) { a.log = log }
+}
+
+// WithHighlighter sets the syntax highlighter.
+func WithHighlighter(hl *syntax.Highlighter) Option {
+	return func(a *App) { a.highlighter = hl }
+}
+
+// WithStore sets the persistence store.
+func WithStore(store persistence.Store) Option {
+	return func(a *App) { a.store = store }
+}
+
+// WithProvider sets the remote provider and review request ID.
+func WithProvider(p provider.Provider, id string) Option {
+	return func(a *App) {
+		a.provider = p
+		a.providerID = id
+	}
+}
+
+// WithCommits populates the commit list and per-commit diffs.
+// commits should be newest-first. All commits are enabled by default.
+// NOTE: This option must be applied after the App's diffFiles are set
+// (i.e. it is intended for use with NewApp, not NewAppWithCommits).
+func WithCommits(commits []vcs.CommitInfo, diffs map[string][]model.DiffFile) Option {
+	return func(a *App) {
+		a.reviewCommits = commits
+		a.commitDiffs = diffs
+		a.enabledCommits = make(map[string]bool, len(commits))
+		for _, c := range commits {
+			a.enabledCommits[c.ID] = true
+		}
+		a.combinedDiffFiles = a.diffFiles
+	}
+}
+
 // NewApp creates a new App model.
-func NewApp(log *slog.Logger, backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
+func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme, opts ...Option) App {
 	var vcsInfo vcs.VcsInfo
 	if backend != nil {
 		vcsInfo = backend.Info()
 	}
 	app := App{
-		log:           log,
+		log:           slog.Default(),
 		vcs:           backend,
 		vcsInfo:       vcsInfo,
 		session:       session,
 		diffFiles:     files,
-		highlighter:   hl,
 		inputMode:     modeNormal,
 		focusedPanel:  panelDiff,
 		showFileList:  true,
 		expandedGaps:  make(map[gapID][]model.DiffLine),
 		collapsedDirs: make(map[string]bool),
-		store:         store,
 		theme:         th,
+	}
+	for _, opt := range opts {
+		opt(&app)
 	}
 	// Show description by default when there's a description but no commit list.
 	if session != nil && session.Description != "" && app.commitListItems() == nil {
@@ -218,24 +261,25 @@ func NewApp(log *slog.Logger, backend vcs.Backend, files []model.DiffFile, sessi
 // NewAppWithCommits creates a new App with pre-populated commit list data.
 // commits should be in newest-first order. commitDiffs maps commit IDs (and "worktree")
 // to their individual diffs. enabledCommits indicates which are initially enabled.
-func NewAppWithCommits(log *slog.Logger, backend vcs.Backend, commits []vcs.CommitInfo, commitDiffs map[string][]model.DiffFile, enabledCommits map[string]bool, includesWorkTree bool, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
+func NewAppWithCommits(backend vcs.Backend, commits []vcs.CommitInfo, commitDiffs map[string][]model.DiffFile, enabledCommits map[string]bool, includesWorkTree bool, session *model.ReviewSession, th theme.Theme, opts ...Option) App {
 	app := App{
-		log:              log,
+		log:              slog.Default(),
 		vcs:              backend,
 		vcsInfo:          backend.Info(),
 		session:          session,
-		highlighter:      hl,
 		inputMode:        modeNormal,
 		focusedPanel:     panelDiff,
 		showFileList:     true,
 		expandedGaps:     make(map[gapID][]model.DiffLine),
 		collapsedDirs:    make(map[string]bool),
-		store:            store,
 		theme:            th,
 		reviewCommits:    commits,
 		commitDiffs:      commitDiffs,
 		enabledCommits:   enabledCommits,
 		includesWorkTree: includesWorkTree,
+	}
+	for _, opt := range opts {
+		opt(&app)
 	}
 	app.diffFiles = app.mergeEnabledDiffs()
 	if session != nil {
@@ -249,7 +293,7 @@ func NewAppWithCommits(log *slog.Logger, backend vcs.Backend, commits []vcs.Comm
 }
 
 // NewPickerApp creates an App that starts in the commit picker phase.
-func NewPickerApp(log *slog.Logger, backend vcs.Backend, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
+func NewPickerApp(backend vcs.Backend, th theme.Theme, opts ...Option) App {
 	commits, _ := backend.GetRecentCommits(0, 30)
 
 	var items []pickerItem
@@ -258,12 +302,10 @@ func NewPickerApp(log *slog.Logger, backend vcs.Backend, th theme.Theme, hl *syn
 		items = append(items, pickerItem{commit: c})
 	}
 
-	return App{
-		log:            log,
+	app := App{
+		log:            slog.Default(),
 		vcs:            backend,
 		vcsInfo:        backend.Info(),
-		highlighter:    hl,
-		store:          store,
 		theme:          th,
 		phase:          phasePicker,
 		pickerItems:    items,
@@ -271,6 +313,10 @@ func NewPickerApp(log *slog.Logger, backend vcs.Backend, th theme.Theme, hl *syn
 		expandedGaps:   make(map[gapID][]model.DiffLine),
 		collapsedDirs:  make(map[string]bool),
 	}
+	for _, opt := range opts {
+		opt(&app)
+	}
+	return app
 }
 
 func (a *App) rebuildFileTree() {
@@ -302,15 +348,9 @@ func (a *App) commentWrapWidth() int {
 	return w
 }
 
-// SetProvider sets the remote provider and review request ID.
-func (a *App) SetProvider(p provider.Provider, id string) {
-	a.provider = p
-	a.providerID = id
-}
-
-// SetCommits populates the commit list and per-commit diffs for the review.
+// setCommits populates the commit list and per-commit diffs for the review.
 // commits should be newest-first. All commits are enabled by default.
-func (a *App) SetCommits(commits []vcs.CommitInfo, diffs map[string][]model.DiffFile) {
+func (a *App) setCommits(commits []vcs.CommitInfo, diffs map[string][]model.DiffFile) {
 	a.reviewCommits = commits
 	a.commitDiffs = diffs
 	a.enabledCommits = make(map[string]bool, len(commits))
@@ -339,27 +379,27 @@ func (a *App) SetSize(width, height int) {
 	a.rebuildAnnotations()
 }
 
-// Update implements tea.Model.
-func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// Update handles a tea.Msg and returns the updated App and any command.
+func (a App) Update(msg tea.Msg) (App, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if a.phase == phaseLoading {
 			if msg.Key().Code == 'q' || msg.Key().Code == tea.KeyEscape {
-				return &a, func() tea.Msg { return DoneMsg{} }
+				return a, func() tea.Msg { return DoneMsg{} }
 			}
-			return &a, nil
+			return a, nil
 		}
 		return a.handleKey(msg)
 	case spinnerTickMsg:
 		if a.phase == phaseLoading {
 			a.spinnerFrame++
-			return &a, spinnerTick()
+			return a, spinnerTick()
 		}
 	case providerLoadedMsg:
 		cmd := a.handleProviderLoaded(msg)
-		return &a, cmd
+		return a, cmd
 	}
-	return &a, nil
+	return a, nil
 }
 
 // View implements tea.Model.

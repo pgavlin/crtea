@@ -48,10 +48,8 @@ func (w *appWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return w, tea.SetClipboard(msg.Content)
 	}
 
-	m, cmd := w.app.Update(msg)
-	if a, ok := m.(*ui.App); ok {
-		w.app = *a
-	}
+	var cmd tea.Cmd
+	w.app, cmd = w.app.Update(msg)
 	return w, cmd
 }
 
@@ -131,7 +129,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 			return fmt.Errorf("detecting GitHub remote: %w", err)
 		}
 		p := gh.New(logger, owner, repo)
-		app = ui.NewProviderApp(logger, backend, p, prID, th, highlighter, store)
+		app = ui.NewProviderApp(backend, p, prID, th, ui.WithLogger(logger), ui.WithHighlighter(highlighter), ui.WithStore(store))
 	} else if revisions := cmd.String("revisions"); revisions != "" {
 		info := backend.Info()
 
@@ -175,16 +173,16 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		}
 
 		diffSource := model.DiffCommitRange
-		session, _ := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
-		if session == nil {
+		session, err := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
+		if err != nil {
 			session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 		}
 		if session.Description == "" {
 			session.Description = buildRevisionDescription(commits, includesWorkTree, revisions)
 		}
-		app = ui.NewAppWithCommits(logger, backend, commits, commitDiffs, enabledCommits, includesWorkTree, session, th, highlighter, store)
+		app = ui.NewAppWithCommits(backend, commits, commitDiffs, enabledCommits, includesWorkTree, session, th, ui.WithLogger(logger), ui.WithHighlighter(highlighter), ui.WithStore(store))
 	} else {
-		app = ui.NewPickerApp(logger, backend, th, highlighter, store)
+		app = ui.NewPickerApp(backend, th, ui.WithLogger(logger), ui.WithHighlighter(highlighter), ui.WithStore(store))
 	}
 
 	w := &appWrapper{app: app}

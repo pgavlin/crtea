@@ -38,11 +38,11 @@ type commitListEntry struct {
 	commit        vcs.CommitInfo
 }
 
-func (a App) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handlePickerKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == 'q' && key.Mod == 0:
-		return &a, func() tea.Msg { return DoneMsg{Session: a.session} }
+		return a, func() tea.Msg { return DoneMsg{Session: a.session} }
 	case key.Code == 'j' && key.Mod == 0, key.Code == tea.KeyDown:
 		if a.pickerCursor < len(a.pickerItems)-1 {
 			a.pickerCursor++
@@ -64,10 +64,10 @@ func (a App) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Code == tea.KeyEnter:
 		return a.pickerConfirm()
 	}
-	return &a, nil
+	return a, nil
 }
 
-func (a App) pickerConfirm() (tea.Model, tea.Cmd) {
+func (a App) pickerConfirm() (App, tea.Cmd) {
 	// If nothing selected, use cursor item
 	if len(a.pickerSelected) == 0 {
 		a.pickerSelected[a.pickerCursor] = true
@@ -119,7 +119,7 @@ func (a App) pickerConfirm() (tea.Model, tea.Cmd) {
 
 	if len(a.diffFiles) == 0 {
 		a.setMessage("No changes found", messageWarning)
-		return &a, nil
+		return a, nil
 	}
 
 	// Session
@@ -128,8 +128,8 @@ func (a App) pickerConfirm() (tea.Model, tea.Cmd) {
 	if includesWorkTree && len(commits) == 0 {
 		diffSource = model.DiffWorkingTree
 	}
-	session, _ := a.store.LoadLatest(info.RootPath, info.BranchName, diffSource)
-	if session == nil {
+	session, err := a.store.LoadLatest(info.RootPath, info.BranchName, diffSource)
+	if err != nil {
 		session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 	}
 	for _, f := range a.diffFiles {
@@ -149,7 +149,7 @@ func (a App) pickerConfirm() (tea.Model, tea.Cmd) {
 	a.rebuildFileTree()
 	a.rebuildAnnotations()
 
-	return &a, nil
+	return a, nil
 }
 
 func (a *App) renderPicker() string {

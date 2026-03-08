@@ -39,7 +39,7 @@ func handleTextInput(key tea.Key, buffer *string, cursor *int) bool {
 	return false
 }
 
-func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	// Clear non-error messages on any keypress; errors persist until Escape
 	if a.message != nil && a.message.level != messageError {
 		a.clearMessage()
@@ -75,7 +75,7 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleNormalKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 
 	// Handle pending key sequences
@@ -86,13 +86,13 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Digit accumulation for {N}G
 	if key.Text >= "1" && key.Text <= "9" || (key.Text == "0" && a.pendingCount != "") {
 		a.pendingCount += key.Text
-		return &a, nil
+		return a, nil
 	}
 
 	// 0 (when not accumulating digits) resets horizontal scroll
 	if key.Text == "0" && a.pendingCount == "" {
 		a.scrollX = 0
-		return &a, nil
+		return a, nil
 	}
 
 	switch {
@@ -101,16 +101,16 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a.dirty && !a.quitWarned {
 			a.quitWarned = true
 			a.setMessage("Unsaved changes. Press q again to quit, or :w to save.", messageWarning)
-			return &a, nil
+			return a, nil
 		}
-		return &a, func() tea.Msg { return DoneMsg{Session: a.session} }
+		return a, func() tea.Msg { return DoneMsg{Session: a.session} }
 
 	case key.Code == tea.KeyEscape:
 		a.pendingCount = ""
 		a.pendingPrefix = 0
 		a.searchHighlight = ""
 		a.clearMessage()
-		return &a, nil
+		return a, nil
 
 	// Navigation
 	case key.Code == 'j' && key.Mod == 0, key.Code == tea.KeyDown:
@@ -198,7 +198,7 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.fileListEnter()
 		} else if a.focusedPanel == panelConversation {
 			cmd := a.postConversationComment()
-			return &a, cmd
+			return a, cmd
 		} else if a.focusedPanel == panelDiff {
 			a.toggleExpandAtCursor()
 		}
@@ -211,7 +211,7 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Code == 'c' && key.Mod == 0:
 		if a.focusedPanel == panelConversation {
 			cmd := a.postConversationComment()
-			return &a, cmd
+			return a, cmd
 		}
 		a.enterLineComment()
 	case key.Text == "C":
@@ -285,10 +285,10 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.helpScroll = 0
 	}
 
-	return &a, nil
+	return a, nil
 }
 
-func (a App) handlePendingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handlePendingKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	prefix := a.pendingPrefix
 	a.pendingPrefix = 0
@@ -318,14 +318,14 @@ func (a App) handlePendingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case 'p':
 			a.prevUnreviewedFile()
 		case 'r':
-			return &a, a.toggleResolveThread()
+			return a, a.toggleResolveThread()
 		}
 	}
 
-	return &a, nil
+	return a, nil
 }
 
-func (a App) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleHelpKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape, key.Code == 'q', key.Text == "?":
@@ -350,10 +350,10 @@ func (a App) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Text == "G":
 		a.helpScroll = 9999 // will be clamped in render
 	}
-	return &a, nil
+	return a, nil
 }
 
-func (a App) handleCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleCommandKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
@@ -365,7 +365,7 @@ func (a App) handleCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a.inputMode == modeCommand {
 			a.inputMode = modeNormal
 		}
-		return &a, cmd
+		return a, cmd
 	case key.Code == tea.KeyBackspace:
 		if len(a.commandBuffer) > 0 {
 			a.commandBuffer = a.commandBuffer[:len(a.commandBuffer)-1]
@@ -377,10 +377,10 @@ func (a App) handleCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.commandBuffer += key.Text
 		}
 	}
-	return &a, nil
+	return a, nil
 }
 
-func (a App) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleSearchKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
@@ -402,10 +402,10 @@ func (a App) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.searchBuffer += key.Text
 		}
 	}
-	return &a, nil
+	return a, nil
 }
 
-func (a App) handleCommentKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleCommentKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
@@ -421,10 +421,10 @@ func (a App) handleCommentKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		handleTextInput(key, &a.commentBuffer, &a.commentCursor)
 	}
-	return &a, nil
+	return a, nil
 }
 
-func (a App) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleConfirmKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == 'y', key.Code == 'Y':
@@ -433,17 +433,17 @@ func (a App) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			cb := a.confirmCallback
 			a.confirmCallback = nil
 			a.confirmPrompt = ""
-			return &a, cb(&a)
+			return a, cb(&a)
 		}
 	case key.Code == tea.KeyEscape, key.Code == 'n', key.Code == 'N':
 		a.inputMode = modeNormal
 		a.confirmCallback = nil
 		a.confirmPrompt = ""
 	}
-	return &a, nil
+	return a, nil
 }
 
-func (a App) handleVisualKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleVisualKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape, key.Code == 'v':
@@ -456,7 +456,7 @@ func (a App) handleVisualKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Code == 'c':
 		a.enterCommentFromVisual()
 	}
-	return &a, nil
+	return a, nil
 }
 
 // Navigation methods
@@ -1240,7 +1240,7 @@ func (a *App) enterOverallReview() {
 	a.inputMode = modeReview
 }
 
-func (a App) handleReviewKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleReviewKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
@@ -1254,10 +1254,10 @@ func (a App) handleReviewKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		handleTextInput(key, &a.reviewBuffer, &a.reviewCursor)
 	}
-	return &a, nil
+	return a, nil
 }
 
-func (a App) handleEditPRKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleEditPRKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
@@ -1267,11 +1267,11 @@ func (a App) handleEditPRKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := a.saveEditPR()
 		a.inputMode = modeNormal
 		a.reviewBuffer = ""
-		return &a, cmd
+		return a, cmd
 	default:
 		handleTextInput(key, &a.reviewBuffer, &a.reviewCursor)
 	}
-	return &a, nil
+	return a, nil
 }
 
 func (a *App) saveConversationComment() {
@@ -1322,7 +1322,7 @@ func (a *App) enterBugReport() {
 	a.inputMode = modeBug
 }
 
-func (a App) handleBugKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleBugKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
@@ -1333,10 +1333,10 @@ func (a App) handleBugKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		handleTextInput(key, &a.bugBuffer, &a.bugCursor)
 	}
-	return &a, nil
+	return a, nil
 }
 
-func (a App) handleConversationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (a App) handleConversationKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	key := msg.Key()
 	switch {
 	case key.Code == tea.KeyEscape:
@@ -1349,15 +1349,15 @@ func (a App) handleConversationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		handleTextInput(key, &a.convBuffer, &a.convCursor)
 	}
-	return &a, nil
+	return a, nil
 }
 
-func (a App) submitBugReport() (tea.Model, tea.Cmd) {
+func (a App) submitBugReport() (App, tea.Cmd) {
 	body := strings.TrimSpace(a.bugBuffer)
 	if body == "" {
 		a.inputMode = modeNormal
 		a.bugBuffer = ""
-		return &a, nil
+		return a, nil
 	}
 
 	screenContent := a.captureScreen()
@@ -1375,13 +1375,13 @@ func (a App) submitBugReport() (tea.Model, tea.Cmd) {
 		a.setMessage("Bug report failed: "+err.Error(), messageError)
 		a.inputMode = modeNormal
 		a.bugBuffer = ""
-		return &a, nil
+		return a, nil
 	}
 
 	a.inputMode = modeNormal
 	a.bugBuffer = ""
 	a.setMessage(fmt.Sprintf("Bug report saved to %s", path), messageInfo)
-	return &a, func() tea.Msg { return ClipboardMsg{Content: path} }
+	return a, func() tea.Msg { return ClipboardMsg{Content: path} }
 }
 
 // Search

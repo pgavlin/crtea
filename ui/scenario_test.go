@@ -135,9 +135,9 @@ func newScenarioApp(t *testing.T) (*App, *testutil.MockProvider, *testutil.MockV
 	mockProv := testutil.NewMockProvider()
 	store := testutil.NewMockStore()
 
-	app := NewApp(testLogger, mockVCS, files, session, theme.Dark(), nil, store)
+	app := NewApp(mockVCS, files, session, theme.Dark(), WithLogger(testLogger), WithStore(store))
 	app.SetSize(100, 30)
-	app.SetProvider(mockProv, "99")
+	app.provider = mockProv; app.providerID = "99"
 
 	return &app, mockProv, mockVCS
 }
@@ -527,9 +527,9 @@ func newMultiFileScenarioApp(t *testing.T) (*App, *testutil.MockProvider, *testu
 	mockProv := testutil.NewMockProvider()
 	store := testutil.NewMockStore()
 
-	app := NewApp(testLogger, mockVCS, files, session, theme.Dark(), nil, store)
+	app := NewApp(mockVCS, files, session, theme.Dark(), WithLogger(testLogger), WithStore(store))
 	app.SetSize(100, 30)
-	app.SetProvider(mockProv, "99")
+	app.provider = mockProv; app.providerID = "99"
 
 	return &app, mockProv, mockVCS
 }
@@ -727,7 +727,7 @@ func TestScenarioPickerToReview(t *testing.T) {
 	}
 
 	store := testutil.NewMockStore()
-	app := NewPickerApp(testLogger, mockVCS, theme.Dark(), nil, store)
+	app := NewPickerApp(mockVCS, theme.Dark(), WithLogger(testLogger), WithStore(store))
 	app.SetSize(100, 30)
 
 	// Snapshot the picker phase.
@@ -836,7 +836,7 @@ func TestScenarioCommitListAndDescription(t *testing.T) {
 			}},
 		}},
 	}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 	app.session.Description = "## Auth Refactor\n\nThis PR refactors the auth layer to use context."
 
 	assertGolden(t, "commitlist_view", snapshot(app))
@@ -983,7 +983,7 @@ func TestScenarioPanelFocusCycling(t *testing.T) {
 		{ID: "c1", ShortID: "c1x", Summary: "Commit one", Author: "alice", Time: testTime.Add(-1 * time.Hour)},
 	}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
-	app.SetCommits(commits, diffs)
+	app.setCommits(commits, diffs)
 	app.showConversation = true
 	app.session.Conversation = []model.ConversationComment{
 		{Author: "bob", Body: "Reviewing now.", CreatedAt: testTime},
