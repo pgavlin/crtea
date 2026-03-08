@@ -24,10 +24,11 @@ type Store interface {
 // FileStore implements Store by persisting sessions as JSON files on disk.
 type FileStore struct {
 	dir string
+	log *slog.Logger
 }
 
 // NewFileStore creates a FileStore using the default session directory.
-func NewFileStore() (*FileStore, error) {
+func NewFileStore(log *slog.Logger) (*FileStore, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -37,7 +38,7 @@ func NewFileStore() (*FileStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	return &FileStore{dir: dir}, nil
+	return &FileStore{dir: dir, log: log}, nil
 }
 
 // Save writes the session to disk.
@@ -86,7 +87,7 @@ func (fs *FileStore) LoadLatest(repoPath, branchName string, diffSource model.Di
 		}
 		info, err := entry.Info()
 		if err != nil {
-			slog.Debug("skipping session file", "name", entry.Name(), "error", err)
+			fs.log.Debug("skipping session file", "name", entry.Name(), "error", err)
 			continue
 		}
 		candidates = append(candidates, candidate{
@@ -102,12 +103,12 @@ func (fs *FileStore) LoadLatest(repoPath, branchName string, diffSource model.Di
 	for _, c := range candidates {
 		data, err := os.ReadFile(c.path)
 		if err != nil {
-			slog.Debug("failed to read session file", "path", c.path, "error", err)
+			fs.log.Debug("failed to read session file", "path", c.path, "error", err)
 			continue
 		}
 		var session model.ReviewSession
 		if err := json.Unmarshal(data, &session); err != nil {
-			slog.Debug("failed to parse session file", "path", c.path, "error", err)
+			fs.log.Debug("failed to parse session file", "path", c.path, "error", err)
 			continue
 		}
 		if session.BranchName == branchName && session.DiffSource == diffSource {

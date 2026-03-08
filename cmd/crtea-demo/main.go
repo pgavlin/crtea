@@ -4,11 +4,13 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/pgavlin/crtea/logging"
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/persistence"
 	"github.com/pgavlin/crtea/provider"
@@ -52,6 +54,13 @@ func main() {
 }
 
 func run() error {
+	logger, logFile, err := logging.Init()
+	if err != nil {
+		logger = slog.Default()
+	} else {
+		defer logFile.Close()
+	}
+
 	m := mock.New()
 
 	// Select theme
@@ -130,13 +139,13 @@ func run() error {
 	session.Conversation = provider.ImportConversation(convComments)
 
 	// Create a no-op store since we don't have a real filesystem session
-	store, err := persistence.NewFileStore()
+	store, err := persistence.NewFileStore(logger)
 	if err != nil {
 		return err
 	}
 
 	// Create app — pass nil backend since we don't need VCS operations
-	app := ui.NewApp(nil, files, session, th, highlighter, store)
+	app := ui.NewApp(logger, nil, files, session, th, highlighter, store)
 	app.SetProvider(m, "42")
 	app.SetCommits(commitInfos, commitDiffs)
 

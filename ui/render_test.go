@@ -69,7 +69,7 @@ func newMultiFileApp(t *testing.T) *App {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	app := NewApp(nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
 	app.SetSize(120, 40)
 	return &app
 }
@@ -620,7 +620,7 @@ func TestRenderFileHeaderRename(t *testing.T) {
 	}
 	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
 	session.GetOrCreateFileReview("new_name.go", model.FileRenamed)
-	app := NewApp(nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
 	app.SetSize(120, 40)
 
 	for _, ann := range app.annotations {
@@ -902,7 +902,7 @@ func TestRenderDiffLineWithSpans(t *testing.T) {
 		},
 	}
 	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
-	app := NewApp(nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
 	app.SetSize(120, 40)
 
 	// Find the annotation for the addition line with spans
@@ -956,7 +956,7 @@ func TestRenderDiffLineWithSpansAndSearchHighlight(t *testing.T) {
 		},
 	}
 	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
-	app := NewApp(nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
 	app.SetSize(120, 40)
 	app.searchHighlight = "main"
 
@@ -1156,7 +1156,7 @@ func TestNewAppWithHighlighter(t *testing.T) {
 	hl.HighlightFiles(files)
 
 	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
-	app := NewApp(nil, files, session, theme.Dark(), hl, nil)
+	app := NewApp(testLogger, nil, files, session, theme.Dark(), hl, nil)
 	app.SetSize(120, 40)
 
 	view := app.View()
@@ -1193,7 +1193,7 @@ func TestPickerConfirmCommitOnly(t *testing.T) {
 	}
 
 	store := testutil.NewMockStore()
-	app := NewPickerApp(mockVCS, theme.Dark(), nil, store)
+	app := NewPickerApp(testLogger, mockVCS, theme.Dark(), nil, store)
 	app.SetSize(120, 40)
 
 	// Move to commit (index 1), select it, confirm

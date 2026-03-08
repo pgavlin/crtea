@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -69,6 +70,7 @@ type ClipboardMsg struct {
 // App is the main Bubble Tea model for the code review TUI.
 type App struct {
 	// Core data
+	log               *slog.Logger
 	vcs               vcs.Backend
 	vcsInfo           vcs.VcsInfo
 	session           *model.ReviewSession
@@ -184,12 +186,13 @@ type App struct {
 }
 
 // NewApp creates a new App model.
-func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
+func NewApp(log *slog.Logger, backend vcs.Backend, files []model.DiffFile, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
 	var vcsInfo vcs.VcsInfo
 	if backend != nil {
 		vcsInfo = backend.Info()
 	}
 	app := App{
+		log:           log,
 		vcs:           backend,
 		vcsInfo:       vcsInfo,
 		session:       session,
@@ -215,8 +218,9 @@ func NewApp(backend vcs.Backend, files []model.DiffFile, session *model.ReviewSe
 // NewAppWithCommits creates a new App with pre-populated commit list data.
 // commits should be in newest-first order. commitDiffs maps commit IDs (and "worktree")
 // to their individual diffs. enabledCommits indicates which are initially enabled.
-func NewAppWithCommits(backend vcs.Backend, commits []vcs.CommitInfo, commitDiffs map[string][]model.DiffFile, enabledCommits map[string]bool, includesWorkTree bool, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
+func NewAppWithCommits(log *slog.Logger, backend vcs.Backend, commits []vcs.CommitInfo, commitDiffs map[string][]model.DiffFile, enabledCommits map[string]bool, includesWorkTree bool, session *model.ReviewSession, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
 	app := App{
+		log:              log,
 		vcs:              backend,
 		vcsInfo:          backend.Info(),
 		session:          session,
@@ -245,7 +249,7 @@ func NewAppWithCommits(backend vcs.Backend, commits []vcs.CommitInfo, commitDiff
 }
 
 // NewPickerApp creates an App that starts in the commit picker phase.
-func NewPickerApp(backend vcs.Backend, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
+func NewPickerApp(log *slog.Logger, backend vcs.Backend, th theme.Theme, hl *syntax.Highlighter, store persistence.Store) App {
 	commits, _ := backend.GetRecentCommits(0, 30)
 
 	var items []pickerItem
@@ -255,6 +259,7 @@ func NewPickerApp(backend vcs.Backend, th theme.Theme, hl *syntax.Highlighter, s
 	}
 
 	return App{
+		log:            log,
 		vcs:            backend,
 		vcsInfo:        backend.Info(),
 		highlighter:    hl,

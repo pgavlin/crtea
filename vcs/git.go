@@ -17,19 +17,21 @@ import (
 // GitBackend implements Backend using the git CLI.
 type GitBackend struct {
 	info VcsInfo
+	log  *slog.Logger
 }
 
 // NewGitBackend creates a new Git backend for the given directory.
-func NewGitBackend(dir string) (*GitBackend, error) {
-	rootPath, err := gitOutput(dir, "rev-parse", "--show-toplevel")
+func NewGitBackend(log *slog.Logger, dir string) (*GitBackend, error) {
+	rootPath, err := gitOutput(log, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return nil, fmt.Errorf("not a git repository: %w", err)
 	}
 
-	headCommit, _ := gitOutput(dir, "rev-parse", "--short", "HEAD")
-	branchName, _ := gitOutput(dir, "symbolic-ref", "--short", "HEAD")
+	headCommit, _ := gitOutput(log, dir, "rev-parse", "--short", "HEAD")
+	branchName, _ := gitOutput(log, dir, "symbolic-ref", "--short", "HEAD")
 
 	return &GitBackend{
+		log: log,
 		info: VcsInfo{
 			RootPath:   strings.TrimSpace(rootPath),
 			HeadCommit: strings.TrimSpace(headCommit),
@@ -45,10 +47,10 @@ func (g *GitBackend) Info() VcsInfo {
 
 func (g *GitBackend) GetWorkingTreeDiff() ([]model.DiffFile, error) {
 	// Get both staged and unstaged changes
-	out, err := gitOutput(g.info.RootPath, "diff", "HEAD", "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/")
+	out, err := gitOutput(g.log, g.info.RootPath, "diff", "HEAD", "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/")
 	if err != nil {
 		// If HEAD doesn't exist (new repo), diff against empty tree
-		out, err = gitOutput(g.info.RootPath, "diff", "--cached", "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/")
+		out, err = gitOutput(g.log, g.info.RootPath, "diff", "--cached", "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/")
 		if err != nil {
 			return nil, err
 		}
@@ -58,7 +60,7 @@ func (g *GitBackend) GetWorkingTreeDiff() ([]model.DiffFile, error) {
 
 func (g *GitBackend) GetRevisionDiff(revSpec string) ([]model.DiffFile, error) {
 	args := []string{"diff", revSpec, "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/"}
-	out, err := gitOutput(g.info.RootPath, args...)
+	out, err := gitOutput(g.log, g.info.RootPath, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +77,7 @@ func (g *GitBackend) GetCommitRangeDiff(ids []string) ([]model.DiffFile, error) 
 	} else {
 		args = []string{"diff", ids[0] + "^", ids[len(ids)-1], "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/"}
 	}
-	out, err := gitOutput(g.info.RootPath, args...)
+	out, err := gitOutput(g.log, g.info.RootPath, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +89,7 @@ func (g *GitBackend) FetchContextLines(filePath string, status model.FileStatus,
 	var err error
 
 	if status == model.FileDeleted {
-		content, err = gitOutput(g.info.RootPath, "show", "HEAD:"+filePath)
+		content, err = gitOutput(g.log, g.info.RootPath, "show", "HEAD:"+filePath)
 	} else {
 		fullPath := filepath.Join(g.info.RootPath, filePath)
 		data, readErr := os.ReadFile(fullPath)
@@ -116,7 +118,7 @@ func (g *GitBackend) FetchContextLines(filePath string, status model.FileStatus,
 func (g *GitBackend) GetRecentCommits(offset, limit int) ([]CommitInfo, error) {
 	// Use NUL byte as record separator so multi-line bodies are handled correctly.
 	format := "%H%n%h%n%s%n%b%x00%an%n%aI%n%D"
-	out, err := gitOutput(g.info.RootPath, "log",
+	out, err := gitOutput(g.log, g.info.RootPath, "log",
 		fmt.Sprintf("--skip=%d", offset),
 		fmt.Sprintf("--max-count=%d", limit),
 		fmt.Sprintf("--format=%s", format),
@@ -134,7 +136,7 @@ func (g *GitBackend) GetCommitsInRange(revSpec string) ([]CommitInfo, error) {
 		logSpec = revSpec + "..HEAD"
 	}
 	format := "%H%n%h%n%s%n%b%x00%an%n%aI%n%D"
-	out, err := gitOutput(g.info.RootPath, "log", logSpec, fmt.Sprintf("--format=%s", format))
+	out, err := gitOutput(g.log, g.info.RootPath, "log", logSpec, fmt.Sprintf("--format=%s", format))
 	if err != nil {
 		return nil, err
 	}
@@ -195,12 +197,12 @@ func parseCommitLog(out string) []CommitInfo {
 	return commits
 }
 
-func gitOutput(dir string, args ...string) (string, error) {
+func gitOutput(log *slog.Logger, dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		slog.Debug("git command failed", "args", args, "dir", dir, "error", err)
+		log.Debug("git command failed", "args", args, "dir", dir, "error", err)
 		return "", err
 	}
 	return string(out), nil

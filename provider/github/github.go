@@ -17,6 +17,8 @@ type GitHub struct {
 	Owner string
 	Repo  string
 
+	log *slog.Logger
+
 	// PR GraphQL node ID (for mutations like markReadyForReview)
 	prNodeID string
 
@@ -28,8 +30,8 @@ type GitHub struct {
 }
 
 // New creates a new GitHub provider for the given owner/repo.
-func New(owner, repo string) *GitHub {
-	return &GitHub{Owner: owner, Repo: repo}
+func New(log *slog.Logger, owner, repo string) *GitHub {
+	return &GitHub{log: log, Owner: owner, Repo: repo}
 }
 
 func (g *GitHub) Name() string { return "github" }
@@ -40,27 +42,27 @@ func (g *GitHub) apiPath(format string, args ...any) string {
 }
 
 // ghAPI calls gh api and returns the raw output.
-func ghAPI(args ...string) ([]byte, error) {
+func ghAPI(log *slog.Logger, args ...string) ([]byte, error) {
 	cmdArgs := append([]string{"api"}, args...)
 	cmd := exec.Command("gh", cmdArgs...)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
-			slog.Debug("gh api call failed", "args", args, "stderr", string(ee.Stderr))
+			log.Debug("gh api call failed", "args", args, "stderr", string(ee.Stderr))
 			return nil, fmt.Errorf("gh api %s: %s", strings.Join(args, " "), string(ee.Stderr))
 		}
-		slog.Debug("gh api call failed", "args", args, "error", err)
+		log.Debug("gh api call failed", "args", args, "error", err)
 		return nil, fmt.Errorf("gh api: %w", err)
 	}
 	return out, nil
 }
 
 // ghAPIPaginated calls gh api with pagination and returns all results.
-func ghAPIPaginated(endpoint string) ([]json.RawMessage, error) {
+func ghAPIPaginated(log *slog.Logger, endpoint string) ([]json.RawMessage, error) {
 	var all []json.RawMessage
 	page := 1
 	for {
-		out, err := ghAPI(endpoint, "--method", "GET",
+		out, err := ghAPI(log, endpoint, "--method", "GET",
 			"-f", fmt.Sprintf("per_page=%d", 100),
 			"-f", fmt.Sprintf("page=%d", page))
 		if err != nil {
@@ -83,7 +85,7 @@ func ghAPIPaginated(endpoint string) ([]json.RawMessage, error) {
 }
 
 func (g *GitHub) GetAuthenticatedUser() (string, error) {
-	out, err := ghAPI("/user")
+	out, err := ghAPI(g.log, "/user")
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +99,7 @@ func (g *GitHub) GetAuthenticatedUser() (string, error) {
 }
 
 func (g *GitHub) GetReviewRequest(id string) (*provider.ReviewRequest, error) {
-	out, err := ghAPI(g.apiPath("/pulls/%s", id))
+	out, err := ghAPI(g.log, g.apiPath("/pulls/%s", id))
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +112,7 @@ func (g *GitHub) GetReviewRequest(id string) (*provider.ReviewRequest, error) {
 }
 
 func (g *GitHub) GetDiff(id string) (string, error) {
-	out, err := ghAPI(g.apiPath("/pulls/%s", id),
+	out, err := ghAPI(g.log, g.apiPath("/pulls/%s", id),
 		"-H", "Accept: application/vnd.github.diff")
 	if err != nil {
 		return "", err
@@ -119,7 +121,7 @@ func (g *GitHub) GetDiff(id string) (string, error) {
 }
 
 func (g *GitHub) ListCommits(id string) ([]provider.Commit, error) {
-	raw, err := ghAPIPaginated(g.apiPath("/pulls/%s/commits", id))
+	raw, err := ghAPIPaginated(g.log, g.apiPath("/pulls/%s/commits", id))
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +129,7 @@ func (g *GitHub) ListCommits(id string) ([]provider.Commit, error) {
 	for _, r := range raw {
 		var gc ghCommit
 		if err := json.Unmarshal(r, &gc); err != nil {
-			slog.Debug("skipping malformed commit", "error", err)
+			g.log.Debug("skipping malformed commit", "error", err)
 			continue
 		}
 		commits = append(commits, gc.toProvider())
@@ -140,7 +142,7 @@ func (g *GitHub) ListCommits(id string) ([]provider.Commit, error) {
 }
 
 func (g *GitHub) GetCommitDiff(id string, commitID string) (string, error) {
-	out, err := ghAPI(g.apiPath("/commits/%s", commitID),
+	out, err := ghAPI(g.log, g.apiPath("/commits/%s", commitID),
 		"-H", "Accept: application/vnd.github.diff")
 	if err != nil {
 		return "", err
@@ -149,7 +151,7 @@ func (g *GitHub) GetCommitDiff(id string, commitID string) (string, error) {
 }
 
 func (g *GitHub) ListReviews(id string) ([]provider.Review, error) {
-	raw, err := ghAPIPaginated(g.apiPath("/pulls/%s/reviews", id))
+	raw, err := ghAPIPaginated(g.log, g.apiPath("/pulls/%s/reviews", id))
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +159,7 @@ func (g *GitHub) ListReviews(id string) ([]provider.Review, error) {
 	for _, r := range raw {
 		var gr ghReview
 		if err := json.Unmarshal(r, &gr); err != nil {
-			slog.Debug("skipping malformed review", "error", err)
+			g.log.Debug("skipping malformed review", "error", err)
 			continue
 		}
 		reviews = append(reviews, gr.toProvider())
@@ -166,7 +168,7 @@ func (g *GitHub) ListReviews(id string) ([]provider.Review, error) {
 }
 
 func (g *GitHub) ListComments(id string) ([]provider.Comment, error) {
-	raw, err := ghAPIPaginated(g.apiPath("/pulls/%s/comments", id))
+	raw, err := ghAPIPaginated(g.log, g.apiPath("/pulls/%s/comments", id))
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +176,7 @@ func (g *GitHub) ListComments(id string) ([]provider.Comment, error) {
 	for _, r := range raw {
 		var gc ghComment
 		if err := json.Unmarshal(r, &gc); err != nil {
-			slog.Debug("skipping malformed comment", "error", err)
+			g.log.Debug("skipping malformed comment", "error", err)
 			continue
 		}
 		comments = append(comments, gc.toProvider())
@@ -183,7 +185,7 @@ func (g *GitHub) ListComments(id string) ([]provider.Comment, error) {
 	// Fetch thread resolution status via GraphQL and apply to comments.
 	threads, err := g.fetchThreadResolution(id)
 	if err != nil {
-		slog.Warn("failed to fetch thread resolution status", "id", id, "error", err)
+		g.log.Warn("failed to fetch thread resolution status", "id", id, "error", err)
 	}
 	if err == nil {
 		// Build map from root comment ID to thread info
@@ -222,7 +224,7 @@ func (g *GitHub) ListComments(id string) ([]provider.Comment, error) {
 }
 
 func (g *GitHub) ListConversation(id string) ([]provider.ConversationComment, error) {
-	raw, err := ghAPIPaginated(g.apiPath("/issues/%s/comments", id))
+	raw, err := ghAPIPaginated(g.log, g.apiPath("/issues/%s/comments", id))
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +232,7 @@ func (g *GitHub) ListConversation(id string) ([]provider.ConversationComment, er
 	for _, r := range raw {
 		var gc ghIssueComment
 		if err := json.Unmarshal(r, &gc); err != nil {
-			slog.Debug("skipping malformed conversation comment", "error", err)
+			g.log.Debug("skipping malformed conversation comment", "error", err)
 			continue
 		}
 		comments = append(comments, gc.toProvider())
@@ -327,7 +329,7 @@ func (g *GitHub) EditComment(id string, commentID string, body string) error {
 }
 
 func (g *GitHub) DeleteComment(id string, commentID string) error {
-	_, err := ghAPI(g.apiPath("/pulls/comments/%s", commentID), "--method", "DELETE")
+	_, err := ghAPI(g.log, g.apiPath("/pulls/comments/%s", commentID), "--method", "DELETE")
 	if err != nil {
 		return fmt.Errorf("deleting comment: %w", err)
 	}
@@ -336,7 +338,7 @@ func (g *GitHub) DeleteComment(id string, commentID string) error {
 
 func (g *GitHub) ResolveThread(id string, threadID string) error {
 	query := `mutation($threadId: ID!) { resolveReviewThread(input: {threadId: $threadId}) { thread { isResolved } } }`
-	_, err := ghAPI("graphql", "-f", "query="+query, "-f", "threadId="+threadID)
+	_, err := ghAPI(g.log, "graphql", "-f", "query="+query, "-f", "threadId="+threadID)
 	if err != nil {
 		return fmt.Errorf("resolving thread: %w", err)
 	}
@@ -345,7 +347,7 @@ func (g *GitHub) ResolveThread(id string, threadID string) error {
 
 func (g *GitHub) UnresolveThread(id string, threadID string) error {
 	query := `mutation($threadId: ID!) { unresolveReviewThread(input: {threadId: $threadId}) { thread { isResolved } } }`
-	_, err := ghAPI("graphql", "-f", "query="+query, "-f", "threadId="+threadID)
+	_, err := ghAPI(g.log, "graphql", "-f", "query="+query, "-f", "threadId="+threadID)
 	if err != nil {
 		return fmt.Errorf("unresolving thread: %w", err)
 	}
@@ -357,7 +359,7 @@ func (g *GitHub) MarkReadyForReview(id string) error {
 		return fmt.Errorf("PR node ID not available")
 	}
 	query := `mutation($prId: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $prId}) { pullRequest { isDraft } } }`
-	_, err := ghAPI("graphql", "-f", "query="+query, "-f", "prId="+g.prNodeID)
+	_, err := ghAPI(g.log, "graphql", "-f", "query="+query, "-f", "prId="+g.prNodeID)
 	if err != nil {
 		return fmt.Errorf("marking ready: %w", err)
 	}
@@ -404,7 +406,7 @@ func (g *GitHub) fetchThreadResolution(prNumber string) (map[string]threadInfo, 
 		}
 	}`, g.Owner, g.Repo, prNumber)
 
-	out, err := ghAPI("graphql", "-f", "query="+query)
+	out, err := ghAPI(g.log, "graphql", "-f", "query="+query)
 	if err != nil {
 		return nil, err
 	}
@@ -489,7 +491,7 @@ func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error) {
 	// Find new comments
 	comments, err := g.ListComments(id)
 	if err != nil {
-		slog.Warn("refresh: failed to list comments", "id", id, "error", err)
+		g.log.Warn("refresh: failed to list comments", "id", id, "error", err)
 	}
 	if err == nil {
 		result.AllComments = comments
@@ -506,7 +508,7 @@ func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error) {
 	// Find new reviews
 	reviews, err := g.ListReviews(id)
 	if err != nil {
-		slog.Warn("refresh: failed to list reviews", "id", id, "error", err)
+		g.log.Warn("refresh: failed to list reviews", "id", id, "error", err)
 	}
 	if err == nil {
 		newIDs := make(map[string]bool, len(reviews))
@@ -522,7 +524,7 @@ func (g *GitHub) Refresh(id string) (*provider.RefreshResult, error) {
 	// Find new conversation comments
 	conv, err := g.ListConversation(id)
 	if err != nil {
-		slog.Warn("refresh: failed to list conversation", "id", id, "error", err)
+		g.log.Warn("refresh: failed to list conversation", "id", id, "error", err)
 	}
 	if err == nil {
 		newIDs := make(map[string]bool, len(conv))

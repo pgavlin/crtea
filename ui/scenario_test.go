@@ -135,7 +135,7 @@ func newScenarioApp(t *testing.T) (*App, *testutil.MockProvider, *testutil.MockV
 	mockProv := testutil.NewMockProvider()
 	store := testutil.NewMockStore()
 
-	app := NewApp(mockVCS, files, session, theme.Dark(), nil, store)
+	app := NewApp(testLogger, mockVCS, files, session, theme.Dark(), nil, store)
 	app.SetSize(100, 30)
 	app.SetProvider(mockProv, "99")
 
@@ -527,7 +527,7 @@ func newMultiFileScenarioApp(t *testing.T) (*App, *testutil.MockProvider, *testu
 	mockProv := testutil.NewMockProvider()
 	store := testutil.NewMockStore()
 
-	app := NewApp(mockVCS, files, session, theme.Dark(), nil, store)
+	app := NewApp(testLogger, mockVCS, files, session, theme.Dark(), nil, store)
 	app.SetSize(100, 30)
 	app.SetProvider(mockProv, "99")
 
@@ -727,7 +727,7 @@ func TestScenarioPickerToReview(t *testing.T) {
 	}
 
 	store := testutil.NewMockStore()
-	app := NewPickerApp(mockVCS, theme.Dark(), nil, store)
+	app := NewPickerApp(testLogger, mockVCS, theme.Dark(), nil, store)
 	app.SetSize(100, 30)
 
 	// Snapshot the picker phase.

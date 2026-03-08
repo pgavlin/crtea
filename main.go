@@ -91,29 +91,30 @@ func main() {
 
 func run(ctx context.Context, cmd *cli.Command) error {
 	// Initialize logging
-	logFile, err := logging.Init()
+	logger, logFile, err := logging.Init()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)
+		logger = slog.Default()
 	} else {
 		defer logFile.Close()
 	}
-	slog.Info("crtea starting")
+	logger.Info("crtea starting")
 
 	dir, err := os.Getwd()
 	if err != nil {
-		slog.Error("failed to get working directory", "error", err)
+		logger.Error("failed to get working directory", "error", err)
 		return err
 	}
 
-	backend, err := vcs.NewGitBackend(dir)
+	backend, err := vcs.NewGitBackend(logger, dir)
 	if err != nil {
-		slog.Error("failed to initialize git backend", "dir", dir, "error", err)
+		logger.Error("failed to initialize git backend", "dir", dir, "error", err)
 		return err
 	}
 
-	store, err := persistence.NewFileStore()
+	store, err := persistence.NewFileStore(logger)
 	if err != nil {
-		slog.Error("failed to initialize session store", "error", err)
+		logger.Error("failed to initialize session store", "error", err)
 		return fmt.Errorf("initializing session store: %w", err)
 	}
 
@@ -126,18 +127,18 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		info := backend.Info()
 		owner, repo, err := gh.DetectRemote(info.RootPath)
 		if err != nil {
-			slog.Error("failed to detect GitHub remote", "path", info.RootPath, "error", err)
+			logger.Error("failed to detect GitHub remote", "path", info.RootPath, "error", err)
 			return fmt.Errorf("detecting GitHub remote: %w", err)
 		}
-		p := gh.New(owner, repo)
-		app = ui.NewProviderApp(backend, p, prID, th, highlighter, store)
+		p := gh.New(logger, owner, repo)
+		app = ui.NewProviderApp(logger, backend, p, prID, th, highlighter, store)
 	} else if revisions := cmd.String("revisions"); revisions != "" {
 		info := backend.Info()
 
 		// Get commits in the range
 		commits, err := backend.GetCommitsInRange(revisions)
 		if err != nil {
-			slog.Error("failed to list commits in range", "revisions", revisions, "error", err)
+			logger.Error("failed to list commits in range", "revisions", revisions, "error", err)
 			return fmt.Errorf("listing commits: %w", err)
 		}
 
@@ -181,24 +182,24 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		if session.Description == "" {
 			session.Description = buildRevisionDescription(commits, includesWorkTree, revisions)
 		}
-		app = ui.NewAppWithCommits(backend, commits, commitDiffs, enabledCommits, includesWorkTree, session, th, highlighter, store)
+		app = ui.NewAppWithCommits(logger, backend, commits, commitDiffs, enabledCommits, includesWorkTree, session, th, highlighter, store)
 	} else {
-		app = ui.NewPickerApp(backend, th, highlighter, store)
+		app = ui.NewPickerApp(logger, backend, th, highlighter, store)
 	}
 
 	w := &appWrapper{app: app}
 	p := tea.NewProgram(w)
 
 	if _, err := p.Run(); err != nil {
-		slog.Error("tea program error", "error", err)
+		logger.Error("tea program error", "error", err)
 		return err
 	}
 	if w.err != nil {
-		slog.Error("application error", "error", w.err)
+		logger.Error("application error", "error", w.err)
 		return w.err
 	}
 
-	slog.Info("crtea exiting")
+	logger.Info("crtea exiting")
 	return nil
 }
 

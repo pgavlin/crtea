@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"io"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,9 @@ import (
 	"github.com/pgavlin/crtea/theme"
 	"github.com/pgavlin/crtea/vcs"
 )
+
+// testLogger returns a logger that discards all output, for use in tests.
+var testLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 // newTestApp creates a minimal App with a diff file containing a few lines,
 // suitable for testing key handling and mode transitions.
@@ -47,7 +52,7 @@ func newTestApp(t *testing.T) *App {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	app := NewApp(nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
 	app.SetSize(120, 40)
 	return &app
 }
@@ -105,7 +110,7 @@ func newTwoFileApp(t *testing.T) *App {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	app := NewApp(nil, files, session, theme.Dark(), nil, nil)
+	app := NewApp(testLogger, nil, files, session, theme.Dark(), nil, nil)
 	app.SetSize(120, 40)
 	return &app
 }
@@ -2022,7 +2027,7 @@ func newPickerApp(t *testing.T) *App {
 	}
 
 	store := testutil.NewMockStore()
-	app := NewPickerApp(mockVCS, theme.Dark(), nil, store)
+	app := NewPickerApp(testLogger, mockVCS, theme.Dark(), nil, store)
 	app.SetSize(120, 40)
 	return &app
 }
@@ -2083,7 +2088,7 @@ func newVCSApp(t *testing.T) *App {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
 	}
 
-	app := NewApp(mockVCS, files, session, theme.Dark(), nil, nil)
+	app := NewApp(testLogger, mockVCS, files, session, theme.Dark(), nil, nil)
 	app.SetSize(120, 40)
 	return &app
 }
