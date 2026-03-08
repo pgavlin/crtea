@@ -104,23 +104,23 @@ type ConversationComment struct {
 
 // ReviewSession persists the review state.
 type ReviewSession struct {
-	ID          string                 `json:"id"`
-	Version     string                 `json:"version"`
-	RepoPath    string                 `json:"repo_path"`
-	BranchName  string                 `json:"branch_name,omitempty"`
-	BaseCommit  string                 `json:"base_commit"`
-	DiffSource  DiffSource             `json:"diff_source"`
-	CommitRange []string               `json:"commit_range,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	ID            string                 `json:"id"`
+	Version       string                 `json:"version"`
+	RepoPath      string                 `json:"repo_path"`
+	BranchName    string                 `json:"branch_name,omitempty"`
+	BaseCommit    string                 `json:"base_commit"`
+	DiffSource    DiffSource             `json:"diff_source"`
+	CommitRange   []string               `json:"commit_range,omitempty"`
+	Description   string                 `json:"description,omitempty"`
+	CreatedAt     time.Time              `json:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
 	Files         map[string]*FileReview `json:"files"`
-	OverallReview *OverallReview          `json:"overall_review,omitempty"`
+	OverallReview *OverallReview         `json:"overall_review,omitempty"`
 
 	// Remote provider fields
-	Provider     *ProviderInfo        `json:"provider,omitempty"`
-	Reviewer     string               `json:"reviewer,omitempty"`
-	Reviews      []OverallReview      `json:"reviews,omitempty"`
+	Provider     *ProviderInfo         `json:"provider,omitempty"`
+	Reviewer     string                `json:"reviewer,omitempty"`
+	Reviews      []OverallReview       `json:"reviews,omitempty"`
 	Conversation []ConversationComment `json:"conversation,omitempty"`
 }
 

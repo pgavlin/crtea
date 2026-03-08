@@ -39,8 +39,8 @@ type annotatedLine struct {
 	gapID        gapID // set for annExpander and annExpandedContext
 
 	// Thread rendering hints
-	IsReply        bool // this comment is a reply (has ReplyToID)
-	HasReplyAfter  bool // the next comment is a reply to this one's thread
+	IsReply       bool // this comment is a reply (has ReplyToID)
+	HasReplyAfter bool // the next comment is a reply to this one's thread
 }
 
 // gapID identifies a gap between hunks for context expansion.

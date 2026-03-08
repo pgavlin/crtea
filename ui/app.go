@@ -66,12 +66,12 @@ type ClipboardMsg struct {
 // App is the main Bubble Tea model for the code review TUI.
 type App struct {
 	// Core data
-	vcs         vcs.Backend
-	vcsInfo     vcs.VcsInfo
-	session     *model.ReviewSession
+	vcs               vcs.Backend
+	vcsInfo           vcs.VcsInfo
+	session           *model.ReviewSession
 	diffFiles         []model.DiffFile
 	combinedDiffFiles []model.DiffFile // original combined diff (from provider), used when all commits enabled
-	highlighter *syntax.Highlighter
+	highlighter       *syntax.Highlighter
 
 	// Phase
 	phase          appPhase

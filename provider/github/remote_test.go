@@ -4,10 +4,10 @@ import "testing"
 
 func TestParseRemoteURL(t *testing.T) {
 	tests := []struct {
-		url         string
-		wantOwner   string
-		wantRepo    string
-		wantErr     bool
+		url       string
+		wantOwner string
+		wantRepo  string
+		wantErr   bool
 	}{
 		{"git@github.com:octocat/hello-world.git", "octocat", "hello-world", false},
 		{"git@github.com:octocat/hello-world", "octocat", "hello-world", false},

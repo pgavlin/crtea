@@ -17,10 +17,10 @@ type GitHub struct {
 	Repo  string
 
 	// Cached state for refresh diffing
-	lastHeadSHA     string
-	lastCommentIDs  map[string]bool
-	lastReviewIDs   map[string]bool
-	lastConvIDs     map[string]bool
+	lastHeadSHA    string
+	lastCommentIDs map[string]bool
+	lastReviewIDs  map[string]bool
+	lastConvIDs    map[string]bool
 }
 
 // New creates a new GitHub provider for the given owner/repo.
@@ -383,13 +383,13 @@ func exportReviewEvent(state provider.ReviewState) string {
 // --- GitHub API response types ---
 
 type ghPullRequest struct {
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	Body   string `json:"body"`
-	State  string `json:"state"`
-	User   ghUser `json:"user"`
+	Number  int    `json:"number"`
+	Title   string `json:"title"`
+	Body    string `json:"body"`
+	State   string `json:"state"`
+	User    ghUser `json:"user"`
 	HTMLURL string `json:"html_url"`
-	Base   struct {
+	Base    struct {
 		Ref string `json:"ref"`
 	} `json:"base"`
 	Head struct {
@@ -450,20 +450,20 @@ func (r *ghReview) toProvider() provider.Review {
 }
 
 type ghComment struct {
-	ID                  int    `json:"id"`
-	User                ghUser `json:"user"`
-	Body                string `json:"body"`
-	Path                string `json:"path"`
-	Line                *int   `json:"line"`
-	OriginalLine        *int   `json:"original_line"`
-	StartLine           *int   `json:"start_line"`
-	OriginalStartLine   *int   `json:"original_start_line"`
-	Side                string `json:"side"`
-	StartSide           string `json:"start_side"`
-	InReplyToID         *int   `json:"in_reply_to_id"`
-	CreatedAt           string `json:"created_at"`
-	Position            *int   `json:"position"`            // nil when outdated
-	OriginalPosition    *int   `json:"original_position"`
+	ID                int    `json:"id"`
+	User              ghUser `json:"user"`
+	Body              string `json:"body"`
+	Path              string `json:"path"`
+	Line              *int   `json:"line"`
+	OriginalLine      *int   `json:"original_line"`
+	StartLine         *int   `json:"start_line"`
+	OriginalStartLine *int   `json:"original_start_line"`
+	Side              string `json:"side"`
+	StartSide         string `json:"start_side"`
+	InReplyToID       *int   `json:"in_reply_to_id"`
+	CreatedAt         string `json:"created_at"`
+	Position          *int   `json:"position"` // nil when outdated
+	OriginalPosition  *int   `json:"original_position"`
 }
 
 func (c *ghComment) toProvider() provider.Comment {

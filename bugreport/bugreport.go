@@ -100,4 +100,3 @@ func CollectEnvironment(vcsInfo vcs.VcsInfo, width, height int) map[string]strin
 	}
 	return env
 }
-

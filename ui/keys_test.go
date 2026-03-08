@@ -2143,9 +2143,9 @@ func TestPickerToggleSelection(t *testing.T) {
 func TestPickerConfirmWithSelection(t *testing.T) {
 	app := newPickerApp(t)
 	// Select working tree and first commit
-	app = sendKeys(app, keyPress(' '))  // select working tree
-	app = sendKeys(app, keyPress('j'))  // move to commit
-	app = sendKeys(app, keyPress(' '))  // select commit
+	app = sendKeys(app, keyPress(' ')) // select working tree
+	app = sendKeys(app, keyPress('j')) // move to commit
+	app = sendKeys(app, keyPress(' ')) // select commit
 	app = sendKeys(app, keySpecial(tea.KeyEnter))
 	if app.phase != phaseReview {
 		t.Fatal("expected review phase after confirm")
@@ -2311,10 +2311,14 @@ func TestAllCommitsEnabled(t *testing.T) {
 
 func TestMergeEnabledDiffs(t *testing.T) {
 	app := newTestApp(t)
-	f1 := model.DiffFile{OldPath: "a.go", NewPath: "a.go", Status: model.FileModified,
-		Hunks: []model.DiffHunk{{Header: "@@ -1 +1 @@"}}}
-	f2 := model.DiffFile{OldPath: "b.go", NewPath: "b.go", Status: model.FileAdded,
-		Hunks: []model.DiffHunk{{Header: "@@ -0,0 +1 @@"}}}
+	f1 := model.DiffFile{
+		OldPath: "a.go", NewPath: "a.go", Status: model.FileModified,
+		Hunks: []model.DiffHunk{{Header: "@@ -1 +1 @@"}},
+	}
+	f2 := model.DiffFile{
+		OldPath: "b.go", NewPath: "b.go", Status: model.FileAdded,
+		Hunks: []model.DiffHunk{{Header: "@@ -0,0 +1 @@"}},
+	}
 	commits := []vcs.CommitInfo{
 		{ID: "c1", ShortID: "c1"},
 		{ID: "c2", ShortID: "c2"},
@@ -2338,7 +2342,8 @@ func TestMergeEnabledDiffs(t *testing.T) {
 
 func TestRebuildFromCommits(t *testing.T) {
 	app := newTestApp(t)
-	f1 := model.DiffFile{OldPath: "x.go", NewPath: "x.go", Status: model.FileModified,
+	f1 := model.DiffFile{
+		OldPath: "x.go", NewPath: "x.go", Status: model.FileModified,
 		Hunks: []model.DiffHunk{{
 			OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 1,
 			Header: "@@ -1,1 +1,1 @@",

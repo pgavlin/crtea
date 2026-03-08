@@ -989,7 +989,7 @@ func TestRenderCommitListWithWorkTree(t *testing.T) {
 		{ID: "c1", ShortID: "c1", Summary: "Test commit", Author: "me", Time: time.Now()},
 	}
 	diffs := map[string][]model.DiffFile{
-		"c1":         app.diffFiles,
+		"c1":        app.diffFiles,
 		worktreeKey: app.diffFiles,
 	}
 	app.SetCommits(commits, diffs)
