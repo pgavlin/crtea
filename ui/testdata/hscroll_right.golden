@@ -1,0 +1,30 @@
+ [git:feature] mock #99                                                    0/1 reviewed  30%  Col 5 
+Files              ││ [M] auth/handler.go                                                           
+ ▼ auth/           ││@@ -1,3 +1,3 @@                                                                
+   └  M handler.go ││   1    1  ge auth                                                             
+                   ││   2      -Handle(w http.ResponseWriter, r *http.Request) {                    
+                   ││        2 +Handle(ctx context.Context, w http.ResponseWriter, r *http.Request)…
+                   ││   3    3  oken := r.Header.Get("Authorization")                               
+                   ││ ⋯ 6 lines hidden [Enter to expand]                                            
+                   ││@@ -10,3 +10,4 @@                                                              
+                   ││  10   10  f err != nil {                                                      
+                   ││  11      -   return err                                                       
+                   ││       11 +   log.Printf("auth error: %v", err)                                
+                   ││       12 +   return fmt.Errorf("auth: %w", err)                               
+                   ││  12   13                                                                      
+                   ││                                                                               
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+ ? for help | c to comment | r to mark reviewed                                                     

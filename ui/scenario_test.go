@@ -447,3 +447,659 @@ func TestScenarioExpandContextAfterComment(t *testing.T) {
 
 	assertGolden(t, "expand_context_collapsed", snapshot(app))
 }
+
+// newMultiFileScenarioApp creates an app with two files for scenarios that need
+// file navigation, file list interaction, and multiple review targets.
+func newMultiFileScenarioApp(t *testing.T) (*App, *testutil.MockProvider, *testutil.MockVCS) {
+	t.Helper()
+
+	mockVCS := &testutil.MockVCS{
+		VcsInfo: vcs.VcsInfo{
+			RootPath:   "/tmp/test",
+			HeadCommit: "abc123",
+			BranchName: "feature",
+			VcsType:    "git",
+		},
+		WorkingTreeDiff: []model.DiffFile{
+			{
+				OldPath: "pkg/server.go", NewPath: "pkg/server.go", Status: model.FileModified,
+				Hunks: []model.DiffHunk{{
+					OldStart: 1, OldCount: 2, NewStart: 1, NewCount: 3,
+					Header: "@@ -1,2 +1,3 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginContext, Content: "package server", OldLineNo: 1, NewLineNo: 1},
+						{Origin: model.OriginAddition, Content: "import \"log\"", NewLineNo: 2},
+						{Origin: model.OriginContext, Content: "func Start() {}", OldLineNo: 2, NewLineNo: 3},
+					},
+				}},
+			},
+		},
+	}
+
+	files := []model.DiffFile{
+		{
+			OldPath: "pkg/server.go",
+			NewPath: "pkg/server.go",
+			Status:  model.FileModified,
+			Hunks: []model.DiffHunk{
+				{
+					OldStart: 1, OldCount: 3, NewStart: 1, NewCount: 4,
+					Header: "@@ -1,3 +1,4 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginContext, Content: "package server", OldLineNo: 1, NewLineNo: 1},
+						{Origin: model.OriginDeletion, Content: "func Start() {", OldLineNo: 2},
+						{Origin: model.OriginAddition, Content: "func Start(ctx context.Context) {", NewLineNo: 2},
+						{Origin: model.OriginAddition, Content: "\tlog.Println(\"starting\")", NewLineNo: 3},
+						{Origin: model.OriginContext, Content: "}", OldLineNo: 3, NewLineNo: 4},
+					},
+				},
+			},
+		},
+		{
+			OldPath: "pkg/config.go",
+			NewPath: "pkg/config.go",
+			Status:  model.FileAdded,
+			Hunks: []model.DiffHunk{
+				{
+					OldStart: 0, OldCount: 0, NewStart: 1, NewCount: 4,
+					Header: "@@ -0,0 +1,4 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginAddition, Content: "package server", NewLineNo: 1},
+						{Origin: model.OriginAddition, Content: "", NewLineNo: 2},
+						{Origin: model.OriginAddition, Content: "type Config struct {", NewLineNo: 3},
+						{Origin: model.OriginAddition, Content: "}", NewLineNo: 4},
+					},
+				},
+			},
+		},
+	}
+
+	session := model.NewSession("/tmp/test", "feature", "abc123", model.DiffPullRequest)
+	session.Provider = &model.ProviderInfo{Name: "mock", ID: "99"}
+	session.Reviewer = "testuser"
+	for _, f := range files {
+		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
+	}
+
+	mockProv := testutil.NewMockProvider()
+	store := testutil.NewMockStore()
+
+	app := NewApp(mockVCS, files, session, theme.Dark(), nil, store)
+	app.SetSize(100, 30)
+	app.SetProvider(mockProv, "99")
+
+	return &app, mockProv, mockVCS
+}
+
+// typeString sends each character as a keypress.
+func typeString(app *App, s string) *App {
+	for _, ch := range s {
+		app = sendKeys(app, keyPress(ch))
+	}
+	return app
+}
+
+// --- Scenario 5: Visual select → range comment ---
+
+func TestScenarioVisualSelectRangeComment(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Move cursor to a diff line (new line 11: first addition in second hunk).
+	idx := findDiffLine(app, 11)
+	if idx < 0 {
+		t.Fatal("could not find diff line for new line 11")
+	}
+	app.cursorLine = idx
+
+	// Enter visual mode.
+	app = sendKeys(app, keyPress('v'))
+	if app.inputMode != modeVisualSelect {
+		t.Fatal("expected visual select mode")
+	}
+
+	// Extend selection down one line to cover lines 11-12.
+	app = sendKeys(app, keyPress('j'))
+	assertGolden(t, "visual_select_active", snapshot(app))
+
+	// Press 'c' to create a range comment.
+	app = sendKeys(app, keyPress('c'))
+	if app.inputMode != modeComment {
+		t.Fatal("expected comment mode from visual")
+	}
+	if app.commentLineRange == nil {
+		t.Fatal("expected line range to be set")
+	}
+
+	app = typeString(app, "Both error handling lines need tests.")
+	assertGolden(t, "visual_select_typing", snapshot(app))
+
+	// Submit the comment.
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	assertGolden(t, "visual_select_done", snapshot(app))
+}
+
+// --- Scenario 6: Submit review with approval status ---
+
+func TestScenarioSubmitReviewWithApproval(t *testing.T) {
+	app, mockProv, _ := newScenarioApp(t)
+
+	// Add a draft comment first.
+	idx := findDiffLine(app, 2)
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('c'))
+	app = typeString(app, "LGTM on this change.")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	// Enter overall review (R).
+	app = sendKeys(app, upperKey('r', 'R'))
+	if app.inputMode != modeReview {
+		t.Fatal("expected review mode")
+	}
+
+	// Type review body.
+	app = typeString(app, "Looks good overall, just one minor comment.")
+
+	// Cycle approval to Approve (Tab once = Approve).
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	assertGolden(t, "submit_review_editor", snapshot(app))
+
+	// Save the review.
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.inputMode != modeNormal {
+		t.Fatal("expected normal mode after saving review")
+	}
+	if app.session.OverallReview == nil {
+		t.Fatal("expected overall review to be set")
+	}
+	if app.session.OverallReview.Status != model.ApprovalApprove {
+		t.Fatalf("expected Approve status, got %v", app.session.OverallReview.Status)
+	}
+
+	// Now submit to provider (:submit).
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "submit")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.inputMode != modeConfirm {
+		t.Fatal("expected confirm mode")
+	}
+	assertGolden(t, "submit_review_confirm", snapshot(app))
+
+	// Confirm with 'y'.
+	app = sendKeys(app, keyPress('y'))
+	assertGolden(t, "submit_review_done", snapshot(app))
+
+	// Verify provider received the submission.
+	if len(mockProv.SubmittedReviews) != 1 {
+		t.Fatalf("expected 1 submitted review, got %d", len(mockProv.SubmittedReviews))
+	}
+	if mockProv.SubmittedReviews[0].State != provider.ReviewApprove {
+		t.Errorf("expected Approve state, got %v", mockProv.SubmittedReviews[0].State)
+	}
+}
+
+// --- Scenario 7: Search and highlight ---
+
+func TestScenarioSearchAndHighlight(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Enter search mode.
+	app = sendKeys(app, keyPress('/'))
+	if app.inputMode != modeSearch {
+		t.Fatal("expected search mode")
+	}
+
+	// Type a search pattern.
+	app = typeString(app, "token")
+	assertGolden(t, "search_typing", snapshot(app))
+
+	// Submit search.
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.inputMode != modeNormal {
+		t.Fatal("expected normal mode after search")
+	}
+	if app.searchHighlight != "token" {
+		t.Fatalf("expected searchHighlight='token', got %q", app.searchHighlight)
+	}
+	assertGolden(t, "search_result", snapshot(app))
+
+	// Press 'n' for next match.
+	prevCursor := app.cursorLine
+	app = sendKeys(app, keyPress('n'))
+	// Cursor should have moved (or stayed if only one match).
+	assertGolden(t, "search_next", snapshot(app))
+
+	// Press 'N' for previous match.
+	app = sendKeys(app, upperKey('n', 'N'))
+	assertGolden(t, "search_prev", snapshot(app))
+
+	// Clear search with Escape.
+	app = sendKeys(app, keySpecial(tea.KeyEscape))
+	if app.searchHighlight != "" {
+		t.Error("search highlight should be cleared on Escape")
+	}
+	assertGolden(t, "search_cleared", snapshot(app))
+	_ = prevCursor
+}
+
+// --- Scenario 8: Picker → review transition ---
+
+func TestScenarioPickerToReview(t *testing.T) {
+	mockVCS := &testutil.MockVCS{
+		VcsInfo: vcs.VcsInfo{
+			RootPath:   "/tmp/test",
+			HeadCommit: "abc123",
+			BranchName: "feature",
+			VcsType:    "git",
+		},
+		RecentCommits: []vcs.CommitInfo{
+			{ID: "aaa", ShortID: "aaa1234", Summary: "Add authentication middleware", Author: "alice", Time: time.Now().Add(-1 * time.Hour)},
+			{ID: "bbb", ShortID: "bbb5678", Summary: "Add unit tests for auth", Author: "alice", Time: time.Now().Add(-30 * time.Minute)},
+		},
+		WorkingTreeDiff: []model.DiffFile{
+			{
+				OldPath: "main.go", NewPath: "main.go", Status: model.FileModified,
+				Hunks: []model.DiffHunk{{
+					OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 2,
+					Header: "@@ -1,1 +1,2 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginContext, Content: "package main", OldLineNo: 1, NewLineNo: 1},
+						{Origin: model.OriginAddition, Content: "import \"auth\"", NewLineNo: 2},
+					},
+				}},
+			},
+		},
+		RevisionDiff: []model.DiffFile{
+			{
+				OldPath: "auth.go", NewPath: "auth.go", Status: model.FileAdded,
+				Hunks: []model.DiffHunk{{
+					OldStart: 0, OldCount: 0, NewStart: 1, NewCount: 2,
+					Header: "@@ -0,0 +1,2 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginAddition, Content: "package auth", NewLineNo: 1},
+						{Origin: model.OriginAddition, Content: "func Validate() {}", NewLineNo: 2},
+					},
+				}},
+			},
+		},
+	}
+
+	store := testutil.NewMockStore()
+	app := NewPickerApp(mockVCS, theme.Dark(), nil, store)
+	app.SetSize(100, 30)
+
+	// Snapshot the picker phase.
+	assertGolden(t, "picker_initial", snapshot(&app))
+
+	// Select working tree (cursor is on it by default).
+	app2 := sendKeys(&app, keyPress(' '))
+
+	// Move down and select a commit.
+	app2 = sendKeys(app2, keyPress('j'), keyPress(' '))
+	assertGolden(t, "picker_selected", snapshot(app2))
+
+	// Confirm.
+	app2 = sendKeys(app2, keySpecial(tea.KeyEnter))
+	if app2.phase != phaseReview {
+		t.Fatal("expected review phase")
+	}
+	assertGolden(t, "picker_review", snapshot(app2))
+}
+
+// --- Scenario 9: Delete comment (dd) ---
+
+func TestScenarioDeleteComment(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Add a comment on line 2.
+	idx := findDiffLine(app, 2)
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('c'))
+	app = typeString(app, "This comment will be deleted.")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	assertGolden(t, "delete_comment_before", snapshot(app))
+
+	// Move cursor to the comment.
+	idx = findLineComment(app, 2)
+	if idx < 0 {
+		t.Fatal("could not find comment to delete")
+	}
+	app.cursorLine = idx
+
+	// Delete with 'dd'.
+	app = sendKeys(app, keyPress('d'), keyPress('d'))
+	if app.message == nil || !strings.Contains(app.message.text, "deleted") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Fatalf("expected delete message, got %q", msg)
+	}
+
+	assertGolden(t, "delete_comment_after", snapshot(app))
+}
+
+// --- Scenario 10: File comment (C) ---
+
+func TestScenarioFileComment(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Move cursor to any line of the first file.
+	idx := findDiffLine(app, 1)
+	app.cursorLine = idx
+
+	// Enter file comment mode (C).
+	app = sendKeys(app, upperKey('c', 'C'))
+	if app.inputMode != modeComment {
+		t.Fatal("expected comment mode")
+	}
+	if !app.commentIsFile {
+		t.Fatal("expected file-level comment")
+	}
+
+	app = typeString(app, "This file needs better error handling throughout.")
+	assertGolden(t, "file_comment_typing", snapshot(app))
+
+	// Submit.
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	assertGolden(t, "file_comment_done", snapshot(app))
+
+	// Verify it appears as a file comment in the session.
+	path := app.diffFiles[0].DisplayPath()
+	fr := app.session.GetFileReview(path)
+	if len(fr.FileComments) != 1 {
+		t.Fatalf("expected 1 file comment, got %d", len(fr.FileComments))
+	}
+}
+
+// --- Scenario 11: Commit list toggle and description view ---
+
+func TestScenarioCommitListAndDescription(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Set up commits.
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1abc", Summary: "Add auth handler", Author: "alice", Time: time.Now().Add(-1 * time.Hour)},
+		{ID: "c2", ShortID: "c2def", Summary: "Add error wrapping", Author: "bob", Time: time.Now().Add(-30 * time.Minute)},
+	}
+	diffs := map[string][]model.DiffFile{
+		"c1": app.diffFiles,
+		"c2": {{
+			OldPath: "pkg/errors.go", NewPath: "pkg/errors.go", Status: model.FileAdded,
+			Hunks: []model.DiffHunk{{
+				OldStart: 0, OldCount: 0, NewStart: 1, NewCount: 1,
+				Header: "@@ -0,0 +1,1 @@",
+				Lines:  []model.DiffLine{{Origin: model.OriginAddition, Content: "package errors", NewLineNo: 1}},
+			}},
+		}},
+	}
+	app.SetCommits(commits, diffs)
+	app.session.Description = "## Auth Refactor\n\nThis PR refactors the auth layer to use context."
+
+	assertGolden(t, "commitlist_view", snapshot(app))
+
+	// Tab to focus commit list.
+	app = sendKeys(app, keySpecial(tea.KeyTab)) // file list
+	app = sendKeys(app, keySpecial(tea.KeyTab)) // commit list
+	if app.focusedPanel != panelCommitList {
+		t.Fatalf("expected commit list focus, got %d", app.focusedPanel)
+	}
+
+	// Toggle commit c2 off.
+	app = sendKeys(app, keyPress('j')) // move to c2
+	app = sendKeys(app, keyPress(' ')) // toggle off
+	if app.enabledCommits["c2"] {
+		t.Fatal("c2 should be disabled")
+	}
+	assertGolden(t, "commitlist_toggled", snapshot(app))
+
+	// Re-enable.
+	app = sendKeys(app, keyPress(' '))
+
+	// Switch to description view (D).
+	app = sendKeys(app, upperKey('d', 'D'))
+	if !app.showDescription {
+		t.Fatal("expected description view")
+	}
+	assertGolden(t, "commitlist_description", snapshot(app))
+
+	// Toggle back to commit list.
+	app = sendKeys(app, upperKey('d', 'D'))
+	if app.showDescription {
+		t.Fatal("expected commit list view")
+	}
+}
+
+// --- Scenario 12: Clear drafts with mixed comments ---
+
+func TestScenarioClearDrafts(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Add a remote comment (has ExternalID).
+	fr := app.session.GetOrCreateFileReview("auth/handler.go", model.FileModified)
+	fr.AddLineComment(2, model.Comment{
+		ID:         "ext-c1",
+		Content:    "Remote comment from reviewer",
+		Type:       model.CommentNote,
+		Side:       model.SideNew,
+		Author:     "reviewer-bob",
+		ExternalID: "ext-c1",
+	})
+
+	// Add a local draft comment.
+	idx := findDiffLine(app, 11)
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('c'))
+	app = typeString(app, "Draft: needs error handling.")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	// Add a file comment (also draft).
+	app = sendKeys(app, upperKey('c', 'C'))
+	app = typeString(app, "Draft file comment.")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	app.rebuildAnnotations()
+	assertGolden(t, "clear_before", snapshot(app))
+
+	// Execute :clear.
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "clear")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.inputMode != modeConfirm {
+		t.Fatal("expected confirm mode")
+	}
+	assertGolden(t, "clear_confirm", snapshot(app))
+
+	// Confirm.
+	app = sendKeys(app, keyPress('y'))
+	assertGolden(t, "clear_after", snapshot(app))
+
+	// Verify: remote comment survives, drafts are gone.
+	fr = app.session.GetFileReview("auth/handler.go")
+	if len(fr.FileComments) != 0 {
+		t.Errorf("expected 0 file comments, got %d", len(fr.FileComments))
+	}
+	totalLineComments := 0
+	for _, comments := range fr.LineComments {
+		totalLineComments += len(comments)
+	}
+	if totalLineComments != 1 {
+		t.Errorf("expected 1 line comment (remote), got %d", totalLineComments)
+	}
+	// The surviving comment should be the remote one.
+	if comments, ok := fr.LineComments[2]; ok {
+		if len(comments) != 1 || comments[0].ExternalID != "ext-c1" {
+			t.Error("surviving comment should be the remote one")
+		}
+	} else {
+		t.Error("remote comment on line 2 should survive")
+	}
+}
+
+// --- Scenario 13: Dirty quit warning ---
+
+func TestScenarioDirtyQuitWarning(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Make a change to set dirty flag.
+	idx := findDiffLine(app, 2)
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('c'))
+	app = typeString(app, "A comment.")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if !app.dirty {
+		t.Fatal("expected dirty flag")
+	}
+
+	// Try to quit.
+	app = sendKeys(app, keyPress('q'))
+	if app.message == nil || !strings.Contains(app.message.text, "Unsaved") {
+		t.Fatal("expected unsaved warning")
+	}
+	assertGolden(t, "quit_warning", snapshot(app))
+
+	// Second q should produce a DoneMsg.
+	_, cmd := app.Update(keyPress('q'))
+	if cmd == nil {
+		t.Fatal("expected quit command on second q")
+	}
+	msg := cmd()
+	if _, ok := msg.(DoneMsg); !ok {
+		t.Fatalf("expected DoneMsg, got %T", msg)
+	}
+}
+
+// --- Scenario 14: Panel focus cycling ---
+
+func TestScenarioPanelFocusCycling(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Set up commits for commit list panel.
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1x", Summary: "Commit one", Author: "alice", Time: time.Now().Add(-1 * time.Hour)},
+	}
+	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
+	app.SetCommits(commits, diffs)
+	app.showConversation = true
+	app.session.Conversation = []model.ConversationComment{
+		{Author: "bob", Body: "Reviewing now.", CreatedAt: time.Now()},
+	}
+
+	// Start in diff panel.
+	if app.focusedPanel != panelDiff {
+		t.Fatalf("expected diff panel, got %d", app.focusedPanel)
+	}
+	assertGolden(t, "panel_diff", snapshot(app))
+
+	// Tab → file list.
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	if app.focusedPanel != panelFileList {
+		t.Fatalf("expected file list, got %d", app.focusedPanel)
+	}
+	assertGolden(t, "panel_filelist", snapshot(app))
+
+	// Tab → commit list.
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	if app.focusedPanel != panelCommitList {
+		t.Fatalf("expected commit list, got %d", app.focusedPanel)
+	}
+	assertGolden(t, "panel_commitlist", snapshot(app))
+
+	// Tab → conversation.
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	if app.focusedPanel != panelConversation {
+		t.Fatalf("expected conversation, got %d", app.focusedPanel)
+	}
+	assertGolden(t, "panel_conversation", snapshot(app))
+
+	// Tab → back to diff.
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	if app.focusedPanel != panelDiff {
+		t.Fatalf("expected diff, got %d", app.focusedPanel)
+	}
+}
+
+// --- Scenario 15: Reload diff from VCS ---
+
+func TestScenarioReloadDiff(t *testing.T) {
+	app, _, mockVCS := newMultiFileScenarioApp(t)
+
+	assertGolden(t, "reload_before", snapshot(app))
+
+	// Execute :e to reload.
+	app = sendKeys(app, keyPress(':'))
+	app = typeString(app, "e")
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.message == nil || !strings.Contains(app.message.text, "Reloaded") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Fatalf("expected reload message, got %q", msg)
+	}
+
+	// The diff should now show the working tree diff from the VCS mock.
+	if len(app.diffFiles) != len(mockVCS.WorkingTreeDiff) {
+		t.Fatalf("expected %d files from VCS, got %d", len(mockVCS.WorkingTreeDiff), len(app.diffFiles))
+	}
+
+	assertGolden(t, "reload_after", snapshot(app))
+}
+
+// --- Scenario 16: File list collapse/expand and jump ---
+
+func TestScenarioFileListNavigation(t *testing.T) {
+	app, _, _ := newMultiFileScenarioApp(t)
+
+	// Focus file list.
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	if app.focusedPanel != panelFileList {
+		t.Fatalf("expected file list, got %d", app.focusedPanel)
+	}
+	assertGolden(t, "filelist_focused", snapshot(app))
+
+	// Enter on directory to collapse it.
+	// First row should be the pkg/ directory.
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	assertGolden(t, "filelist_collapsed", snapshot(app))
+
+	// Enter again to expand.
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	assertGolden(t, "filelist_expanded", snapshot(app))
+
+	// Navigate down to a file and Enter to jump to it in diff view.
+	app = sendKeys(app, keyPress('j')) // move to first file
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.focusedPanel != panelDiff {
+		t.Fatal("should switch to diff panel after jumping to file")
+	}
+	assertGolden(t, "filelist_jumped", snapshot(app))
+}
+
+// --- Scenario 17: Horizontal scroll ---
+
+func TestScenarioHorizontalScroll(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Move cursor to long line (line 2 has the long addition).
+	idx := findDiffLine(app, 2)
+	app.cursorLine = idx
+
+	assertGolden(t, "hscroll_initial", snapshot(app))
+
+	// Scroll right several times.
+	app = sendKeys(app, keyPress('l'), keyPress('l'), keyPress('l'), keyPress('l'), keyPress('l'))
+	if app.scrollX != 5 {
+		t.Fatalf("expected scrollX=5, got %d", app.scrollX)
+	}
+	assertGolden(t, "hscroll_right", snapshot(app))
+
+	// Reset with '0'.
+	app = sendKeys(app, keyPress('0'))
+	if app.scrollX != 0 {
+		t.Fatal("expected scrollX=0 after reset")
+	}
+	assertGolden(t, "hscroll_reset", snapshot(app))
+}

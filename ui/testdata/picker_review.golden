@@ -1,0 +1,30 @@
+ [git:feature]                                                                    0/2 reviewed  All 
+  ● Working tree changes                                                                            
+  ● aaa1234 Add authentication middleware  alice, 1 hour ago                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Files              ││ [A] auth.go                                                                   
+  A auth.go        ││@@ -0,0 +1,2 @@                                                                
+  M main.go        ││        1 +package auth                                                        
+                   ││        2 +func Validate() {}                                                  
+                   ││                                                                               
+                   ││ [M] main.go                                                                   
+                   ││@@ -1,1 +1,2 @@                                                                
+                   ││   1    1  package main                                                        
+                   ││        2 +import "auth"                                                       
+                   ││                                                                               
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+ ? for help | c to comment | r to mark reviewed                                                     

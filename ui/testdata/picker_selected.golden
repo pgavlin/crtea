@@ -1,0 +1,29 @@
+
+  Select what to review
+  branch: feature
+
+  ● Working tree changes
+> ● aaa1234 Add authentication middleware  alice, 1 hour ago
+  ○ bbb5678 Add unit tests for auth  alice, 30 minutes ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Space: toggle  Enter: review  q: quit

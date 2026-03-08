@@ -1,0 +1,30 @@
+ [git:feature] mock #99                                                           0/1 reviewed  All 
+Files              ││ [M] pkg/server.go                                                             
+ ▼ pkg/            ││@@ -1,2 +1,3 @@                                                                
+   └  M server.go  ││   1    1  package server                                                      
+                   ││        2 +import "log"                                                        
+                   ││   2    3  func Start() {}                                                     
+                   ││                                                                               
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+ Reloaded 1 files                                                                                   

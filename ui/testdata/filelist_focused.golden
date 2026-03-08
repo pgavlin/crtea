@@ -1,0 +1,30 @@
+ [git:feature] mock #99                                                           0/2 reviewed  All 
+Files              ││ [M] pkg/server.go                                                             
+ ▼ pkg/            ││@@ -1,3 +1,4 @@                                                                
+   ├  A config.go  ││   1    1  package server                                                      
+   └  M server.go  ││   2      -func Start() {                                                      
+                   ││        2 +func Start(ctx context.Context) {                                   
+                   ││        3 +    log.Println("starting")                                         
+                   ││   3    4  }                                                                   
+                   ││                                                                               
+                   ││ [A] pkg/config.go                                                             
+                   ││@@ -0,0 +1,4 @@                                                                
+                   ││        1 +package server                                                      
+                   ││        2 +                                                                    
+                   ││        3 +type Config struct {                                                
+                   ││        4 +}                                                                   
+                   ││                                                                               
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+                   ││~                                                                              
+ ? for help | c to comment | r to mark reviewed                                                     
