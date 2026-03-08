@@ -128,8 +128,11 @@ func (a App) pickerConfirm() (App, tea.Cmd) {
 	if includesWorkTree && len(commits) == 0 {
 		diffSource = model.DiffWorkingTree
 	}
-	session, err := a.store.LoadLatest(info.RootPath, info.BranchName, diffSource)
-	if err != nil {
+	var session *model.ReviewSession
+	if a.store != nil {
+		session, _ = a.store.LoadLatest(info.RootPath, info.BranchName, diffSource)
+	}
+	if session == nil {
 		session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 	}
 	for _, f := range a.diffFiles {

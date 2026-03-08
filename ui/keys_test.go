@@ -142,6 +142,43 @@ func sendKeys(app *App, keys ...tea.KeyPressMsg) *App {
 	return &a
 }
 
+// --- No-options safety ---
+
+func TestNewAppWithNoOptions(t *testing.T) {
+	files := []model.DiffFile{
+		{
+			OldPath: "a.go", NewPath: "a.go", Status: model.FileModified,
+			Hunks: []model.DiffHunk{{
+				OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 2,
+				Header: "@@ -1,1 +1,2 @@",
+				Lines: []model.DiffLine{
+					{Origin: model.OriginContext, Content: "package main", OldLineNo: 1, NewLineNo: 1},
+					{Origin: model.OriginAddition, Content: "var x = 1", NewLineNo: 2},
+				},
+			}},
+		},
+	}
+	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
+
+	// Construct with zero optional options — must not panic.
+	a := NewApp(nil, files, session, theme.Dark())
+	a.SetSize(80, 24)
+
+	// View, navigate, comment, save, quit — all must not panic.
+	_ = a.View()
+	app := sendKeys(&a,
+		keyPress('j'), keyPress('j'), // navigate
+		keyPress('r'),                // toggle reviewed
+		keyPress(':'),                // enter command mode
+	)
+	// Type :w and enter — save with nil store should warn, not panic.
+	app = sendKeys(app, keyPress('w'))
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.message == nil || app.message.level != messageWarning {
+		t.Error("expected warning when saving with nil store")
+	}
+}
+
 // --- Test harness validation ---
 
 func TestHarnessInitialState(t *testing.T) {

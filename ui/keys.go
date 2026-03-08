@@ -1474,7 +1474,9 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 	case "q!", "quit!":
 		return func() tea.Msg { return DoneMsg{Session: a.session} }
 	case "w", "write":
-		if _, err := a.store.Save(a.session); err != nil {
+		if a.store == nil {
+			a.setMessage("No store configured", messageWarning)
+		} else if _, err := a.store.Save(a.session); err != nil {
 			a.log.Error("failed to save session", "error", err)
 			a.setMessage("Save failed: "+err.Error(), messageError)
 		} else {
@@ -1483,7 +1485,9 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 		}
 		return nil
 	case "x", "wq":
-		a.store.Save(a.session)
+		if a.store != nil {
+			a.store.Save(a.session)
+		}
 		a.dirty = false
 		return func() tea.Msg { return DoneMsg{Session: a.session} }
 	case "e", "reload":
@@ -1678,7 +1682,9 @@ func (a *App) submitToProvider() tea.Cmd {
 		}
 
 		// Auto-save
-		a.store.Save(a.session)
+		if a.store != nil {
+			a.store.Save(a.session)
+		}
 		a.dirty = false
 		a.setMessage(fmt.Sprintf("Review submitted to %s #%s", a.session.Provider.Name, a.session.Provider.ID), messageInfo)
 		return nil
@@ -1766,8 +1772,10 @@ func (a *App) refreshFromProvider() tea.Cmd {
 	}
 
 	a.rebuildAnnotations()
-	if _, err := a.store.Save(a.session); err == nil {
-		a.dirty = false
+	if a.store != nil {
+		if _, err := a.store.Save(a.session); err == nil {
+			a.dirty = false
+		}
 	}
 	a.setMessage(fmt.Sprintf("Refreshed: %d new items", newCount), messageInfo)
 	return nil

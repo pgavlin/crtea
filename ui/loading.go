@@ -89,12 +89,17 @@ func (a *App) loadProviderCmd() tea.Cmd {
 			log.Warn("no changes found in diff", "id", id)
 			return providerLoadedMsg{err: fmt.Errorf("no changes to review")}
 		}
-		hl.HighlightFiles(files)
+		if hl != nil {
+			hl.HighlightFiles(files)
+		}
 
 		// Session
 		diffSource := model.DiffPullRequest
-		session, err := store.LoadLatest(info.RootPath, info.BranchName, diffSource)
-		if err != nil {
+		var session *model.ReviewSession
+		if store != nil {
+			session, _ = store.LoadLatest(info.RootPath, info.BranchName, diffSource)
+		}
+		if session == nil {
 			session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 		}
 		session.Provider = &model.ProviderInfo{
@@ -172,7 +177,9 @@ func (a *App) loadProviderCmd() tea.Cmd {
 				}
 				if cdiff, err := p.GetCommitDiff(id, c.ID); err == nil {
 					cf := vcs.ParseDiff(cdiff)
-					hl.HighlightFiles(cf)
+					if hl != nil {
+						hl.HighlightFiles(cf)
+					}
 					commitDiffs[c.ID] = cf
 				} else {
 					log.Warn("failed to fetch commit diff", "commit", c.ShortID, "error", err)
