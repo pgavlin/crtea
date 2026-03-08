@@ -358,7 +358,6 @@ func (a *App) setCommits(commits []vcs.CommitInfo, diffs map[string][]model.Diff
 		a.enabledCommits[c.ID] = true
 	}
 	// Save the current combined diff (from provider) for use when all commits are enabled.
-	// mergeEnabledDiffs naively appends hunks and breaks when multiple commits touch the same file.
 	a.combinedDiffFiles = a.diffFiles
 	// Don't rebuild — all commits are enabled so the combined diff is already correct.
 }
@@ -653,10 +652,13 @@ func (a *App) descriptionLineCount() int {
 }
 
 // mergeEnabledDiffs combines per-commit diffs for all enabled commits.
+// When multiple commits modify the same file, their hunks are composed
+// (rather than naively appended) so that overlapping changes merge correctly.
 func (a *App) mergeEnabledDiffs() []model.DiffFile {
 	type fileEntry struct {
-		file  model.DiffFile
-		order int
+		file        model.DiffFile
+		commitHunks [][]model.DiffHunk // per-commit hunks, oldest-first
+		order       int
 	}
 	fileMap := make(map[string]*fileEntry)
 	order := 0
@@ -664,13 +666,18 @@ func (a *App) mergeEnabledDiffs() []model.DiffFile {
 	addDiffs := func(diffs []model.DiffFile) {
 		for _, df := range diffs {
 			path := df.DisplayPath()
+			hunksCopy := make([]model.DiffHunk, len(df.Hunks))
+			copy(hunksCopy, df.Hunks)
 			if entry, ok := fileMap[path]; ok {
-				entry.file.Hunks = append(entry.file.Hunks, df.Hunks...)
+				entry.commitHunks = append(entry.commitHunks, hunksCopy)
 			} else {
 				fileCopy := df
-				fileCopy.Hunks = make([]model.DiffHunk, len(df.Hunks))
-				copy(fileCopy.Hunks, df.Hunks)
-				fileMap[path] = &fileEntry{file: fileCopy, order: order}
+				fileCopy.Hunks = nil // will be set after composition
+				fileMap[path] = &fileEntry{
+					file:        fileCopy,
+					commitHunks: [][]model.DiffHunk{hunksCopy},
+					order:       order,
+				}
 				order++
 			}
 		}
@@ -692,6 +699,7 @@ func (a *App) mergeEnabledDiffs() []model.DiffFile {
 
 	entries := make([]*fileEntry, 0, len(fileMap))
 	for _, e := range fileMap {
+		e.file.Hunks = mergeFileHunks(e.commitHunks)
 		entries = append(entries, e)
 	}
 	sort.Slice(entries, func(i, j int) bool {
