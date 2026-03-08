@@ -137,7 +137,8 @@ func newScenarioApp(t *testing.T) (*App, *testutil.MockProvider, *testutil.MockV
 
 	app := NewApp(mockVCS, files, session, theme.Dark(), WithLogger(testLogger), WithStore(store))
 	app.SetSize(100, 30)
-	app.provider = mockProv; app.providerID = "99"
+	app.provider = mockProv
+	app.providerID = "99"
 
 	return &app, mockProv, mockVCS
 }
@@ -529,7 +530,8 @@ func newMultiFileScenarioApp(t *testing.T) (*App, *testutil.MockProvider, *testu
 
 	app := NewApp(mockVCS, files, session, theme.Dark(), WithLogger(testLogger), WithStore(store))
 	app.SetSize(100, 30)
-	app.provider = mockProv; app.providerID = "99"
+	app.provider = mockProv
+	app.providerID = "99"
 
 	return &app, mockProv, mockVCS
 }

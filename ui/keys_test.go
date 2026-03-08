@@ -168,8 +168,8 @@ func TestNewAppWithNoOptions(t *testing.T) {
 	_ = a.View()
 	app := sendKeys(&a,
 		keyPress('j'), keyPress('j'), // navigate
-		keyPress('r'),                // toggle reviewed
-		keyPress(':'),                // enter command mode
+		keyPress('r'), // toggle reviewed
+		keyPress(':'), // enter command mode
 	)
 	// Type :w and enter — save with nil store should warn, not panic.
 	app = sendKeys(app, keyPress('w'))
@@ -2813,7 +2813,8 @@ func TestReplyToLocalComment(t *testing.T) {
 func TestSetProvider(t *testing.T) {
 	app := newTestApp(t)
 	m := mock.New()
-	app.provider = m; app.providerID = "42"
+	app.provider = m
+	app.providerID = "42"
 	if app.provider == nil {
 		t.Fatal("provider should be set")
 	}

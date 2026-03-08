@@ -263,4 +263,3 @@ func spinnerTick() tea.Cmd {
 		return spinnerTickMsg{}
 	})
 }
-

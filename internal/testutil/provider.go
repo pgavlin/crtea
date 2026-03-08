@@ -24,12 +24,12 @@ type MockProvider struct {
 	RefreshErr    error
 
 	// Error simulation for specific methods
-	EditCommentErr      error
-	DeleteCommentErr    error
-	ResolveThreadErr    error
-	UnresolveThreadErr  error
-	MarkReadyErr        error
-	UpdateReviewErr     error
+	EditCommentErr     error
+	DeleteCommentErr   error
+	ResolveThreadErr   error
+	UnresolveThreadErr error
+	MarkReadyErr       error
+	UpdateReviewErr    error
 
 	// Recorded calls
 	SubmittedReviews    []provider.SubmitReviewRequest
