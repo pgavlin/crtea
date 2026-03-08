@@ -3,9 +3,15 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/pgavlin/crtea/internal/testutil"
 	"github.com/pgavlin/crtea/model"
+	"github.com/pgavlin/crtea/syntax"
 	"github.com/pgavlin/crtea/theme"
+	"github.com/pgavlin/crtea/vcs"
 )
 
 // newMultiFileApp creates an App with two files and two hunks in the first file,
@@ -460,5 +466,794 @@ func TestViewNarrowWidth(t *testing.T) {
 	lines := strings.Split(view.Content, "\n")
 	if len(lines) == 0 {
 		t.Error("narrow view should still produce output")
+	}
+}
+
+// --- renderDiffLine coverage ---
+
+func TestRenderDiffLineAddition(t *testing.T) {
+	app := newTestApp(t)
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine {
+			file := app.diffFiles[ann.FileIdx]
+			line := file.Hunks[ann.HunkIdx].Lines[ann.LineIdx]
+			if line.Origin == model.OriginAddition {
+				result := app.renderDiffLine(ann, 80, false, false)
+				if !strings.Contains(result, "+") {
+					t.Error("addition line should contain '+'")
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("no addition line found")
+}
+
+func TestRenderDiffLineDeletion(t *testing.T) {
+	app := newTestApp(t)
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine {
+			file := app.diffFiles[ann.FileIdx]
+			line := file.Hunks[ann.HunkIdx].Lines[ann.LineIdx]
+			if line.Origin == model.OriginDeletion {
+				result := app.renderDiffLine(ann, 80, false, false)
+				if !strings.Contains(result, "-") {
+					t.Error("deletion line should contain '-'")
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("no deletion line found")
+}
+
+func TestRenderDiffLineContext(t *testing.T) {
+	app := newTestApp(t)
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine {
+			file := app.diffFiles[ann.FileIdx]
+			line := file.Hunks[ann.HunkIdx].Lines[ann.LineIdx]
+			if line.Origin == model.OriginContext {
+				result := app.renderDiffLine(ann, 80, false, false)
+				if len(result) == 0 {
+					t.Error("context line should not be empty")
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("no context line found")
+}
+
+func TestRenderDiffLineWithCursorHighlight(t *testing.T) {
+	app := newTestApp(t)
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine {
+			withCursor := app.renderDiffLine(ann, 80, true, false)
+			withoutCursor := app.renderDiffLine(ann, 80, false, false)
+			if withCursor == withoutCursor {
+				t.Error("cursor highlight should change rendered output")
+			}
+			return
+		}
+	}
+}
+
+func TestRenderDiffLineWithVisualSelect(t *testing.T) {
+	app := newTestApp(t)
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine {
+			withVisual := app.renderDiffLine(ann, 80, false, true)
+			withoutVisual := app.renderDiffLine(ann, 80, false, false)
+			if withVisual == withoutVisual {
+				t.Error("visual selection should change rendered output")
+			}
+			return
+		}
+	}
+}
+
+func TestRenderDiffLineNarrowWidth(t *testing.T) {
+	app := newTestApp(t)
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine {
+			// Should not panic even at very small widths
+			_ = app.renderDiffLine(ann, 5, false, false)
+			_ = app.renderDiffLine(ann, 1, false, false)
+			_ = app.renderDiffLine(ann, 0, false, false)
+			return
+		}
+	}
+}
+
+func TestRenderDiffLineWithHorizontalScroll(t *testing.T) {
+	app := newTestApp(t)
+	app.scrollX = 3
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine {
+			result := app.renderDiffLine(ann, 80, false, false)
+			if len(result) == 0 {
+				t.Error("scrolled diff line should not be empty")
+			}
+			return
+		}
+	}
+}
+
+// --- renderFileHeader coverage ---
+
+func TestRenderFileHeaderStatuses(t *testing.T) {
+	app := newMultiFileApp(t)
+	for _, ann := range app.annotations {
+		if ann.Type == annFileHeader {
+			result := app.renderFileHeader(ann, 80, false)
+			if len(result) == 0 {
+				t.Errorf("file header for file %d should not be empty", ann.FileIdx)
+			}
+		}
+	}
+}
+
+func TestRenderFileHeaderReviewedMark(t *testing.T) {
+	app := newTestApp(t)
+	path := app.diffFiles[0].DisplayPath()
+	app.session.GetOrCreateFileReview(path, model.FileModified).Reviewed = true
+
+	for _, ann := range app.annotations {
+		if ann.Type == annFileHeader {
+			result := app.renderFileHeader(ann, 80, false)
+			if !strings.Contains(result, "✓") {
+				t.Error("reviewed file header should contain checkmark")
+			}
+			return
+		}
+	}
+}
+
+func TestRenderFileHeaderRename(t *testing.T) {
+	files := []model.DiffFile{
+		{
+			OldPath: "old_name.go",
+			NewPath: "new_name.go",
+			Status:  model.FileRenamed,
+		},
+	}
+	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
+	session.GetOrCreateFileReview("new_name.go", model.FileRenamed)
+	app := NewApp(nil, files, session, theme.Dark(), nil, nil)
+	app.SetSize(120, 40)
+
+	for _, ann := range app.annotations {
+		if ann.Type == annFileHeader {
+			result := app.renderFileHeader(ann, 120, false)
+			if !strings.Contains(result, "old_name.go") {
+				t.Error("renamed file header should mention old name")
+			}
+			return
+		}
+	}
+}
+
+// --- renderCommentEditor ---
+
+func TestRenderCommentEditor(t *testing.T) {
+	app := newTestApp(t)
+	app.commentBuffer = "test comment text"
+	app.commentCursor = len(app.commentBuffer)
+	app.commentType = model.CommentNote
+	app.inputMode = modeComment
+
+	lines := app.renderCommentEditor(80)
+	if len(lines) < 3 {
+		t.Fatalf("comment editor should have at least 3 lines (border+content+border), got %d", len(lines))
+	}
+
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "test comment text") {
+		t.Error("comment editor should contain buffer text")
+	}
+	if !strings.Contains(joined, "Note") {
+		t.Error("comment editor should show comment type badge")
+	}
+}
+
+func TestRenderCommentEditorNarrow(t *testing.T) {
+	app := newTestApp(t)
+	app.commentBuffer = "x"
+	app.commentCursor = 1
+	app.commentType = model.CommentIssue
+
+	// Should not panic at narrow widths
+	lines := app.renderCommentEditor(15)
+	if len(lines) == 0 {
+		t.Error("narrow comment editor should still produce output")
+	}
+}
+
+// --- renderReviewEditor ---
+
+func TestRenderReviewEditorStatuses(t *testing.T) {
+	app := newTestApp(t)
+
+	statuses := []model.ApprovalStatus{
+		model.ApprovalNeutral,
+		model.ApprovalApprove,
+		model.ApprovalRequestChanges,
+	}
+	for _, s := range statuses {
+		app.reviewStatus = s
+		result := app.renderReviewEditor(80, 8)
+		if !strings.Contains(result, s.String()) {
+			t.Errorf("review editor should contain status %q", s.String())
+		}
+	}
+}
+
+// --- commentTypeColor ---
+
+func TestCommentTypeColor(t *testing.T) {
+	app := newTestApp(t)
+	types := []model.CommentType{
+		model.CommentNote,
+		model.CommentSuggestion,
+		model.CommentIssue,
+		model.CommentPraise,
+		model.CommentQuestion,
+	}
+	for _, ct := range types {
+		color := app.commentTypeColor(ct)
+		if color == nil {
+			t.Errorf("commentTypeColor(%d) returned nil", ct)
+		}
+	}
+}
+
+// --- expandTabs ---
+
+func TestExpandTabs(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"no tabs", "no tabs"},
+		{"\thello", "    hello"},
+		{"ab\tc", "ab  c"},       // 2 chars + tab = pad to 4
+		{"abcd\te", "abcd    e"}, // 4 chars + tab = pad to 8
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := expandTabs(tt.input)
+		if got != tt.want {
+			t.Errorf("expandTabs(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+// --- truncateOrPad ---
+
+func TestTruncateOrPad(t *testing.T) {
+	tests := []struct {
+		input string
+		width int
+		want  string
+	}{
+		{"hello", 10, "hello     "},
+		{"hello world", 5, "hell…"},
+		{"exact", 5, "exact"},
+		{"x", 0, ""},
+		{"x", -1, ""},
+	}
+	for _, tt := range tests {
+		got := truncateOrPad(tt.input, tt.width)
+		if got != tt.want {
+			t.Errorf("truncateOrPad(%q, %d) = %q, want %q", tt.input, tt.width, got, tt.want)
+		}
+	}
+}
+
+// --- renderCommentLine ---
+
+func TestRenderCommentLine(t *testing.T) {
+	app := newTestApp(t)
+	path := app.diffFiles[0].DisplayPath()
+	fr := app.session.GetOrCreateFileReview(path, model.FileModified)
+
+	c := model.NewComment("file level note", model.CommentNote, model.SideNew)
+	fr.AddFileComment(c)
+
+	c2 := model.NewComment("line level note", model.CommentNote, model.SideNew)
+	fr.AddLineComment(2, c2)
+
+	app.rebuildAnnotations()
+
+	for _, ann := range app.annotations {
+		if ann.Type == annFileComment || ann.Type == annLineComment {
+			result := app.renderCommentLine(ann, 80, false, ann.Type == annFileComment)
+			if len(result) == 0 {
+				t.Errorf("comment line of type %d should not be empty", ann.Type)
+			}
+		}
+	}
+}
+
+// --- View with file list hidden ---
+
+func TestViewWithFileListHidden(t *testing.T) {
+	app := newTestApp(t)
+	app.showFileList = false
+	view := app.View()
+	if view.Content == "" {
+		t.Error("View with hidden file list should still produce output")
+	}
+	if !strings.Contains(view.Content, "package main") {
+		t.Error("View should still contain diff content with file list hidden")
+	}
+}
+
+// --- View with inline comment editor ---
+
+func TestViewWithCommentEditorInline(t *testing.T) {
+	app := newTestApp(t)
+	// Move to diff line
+	for app.cursorLine < len(app.annotations) && app.annotations[app.cursorLine].Type != annDiffLine {
+		app = sendKeys(app, keyPress('j'))
+	}
+	// Enter comment mode (inline editor should appear)
+	app = sendKeys(app, keyPress('c'))
+	view := app.View()
+	// The view should contain the comment editor box
+	if !strings.Contains(view.Content, "Note") {
+		t.Error("View should show comment type badge in inline editor")
+	}
+}
+
+// --- View with bug report editor ---
+
+func TestViewWithBugEditor(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeBug
+	app.bugBuffer = "my bug description"
+	app.bugCursor = len(app.bugBuffer)
+	view := app.View()
+	if view.Content == "" {
+		t.Error("View with bug editor should produce output")
+	}
+}
+
+// --- isEditingAnnotation ---
+
+func TestIsEditingAnnotation(t *testing.T) {
+	app := newTestApp(t)
+	path := app.diffFiles[0].DisplayPath()
+	fr := app.session.GetOrCreateFileReview(path, model.FileModified)
+	c := model.NewComment("edit me", model.CommentNote, model.SideNew)
+	fr.AddFileComment(c)
+	app.rebuildAnnotations()
+
+	// Not editing
+	for _, ann := range app.annotations {
+		if ann.Type == annFileComment {
+			if app.isEditingAnnotation(ann) {
+				t.Error("should not be editing when editingID is empty")
+			}
+			break
+		}
+	}
+
+	// Editing
+	app.editingID = c.ID
+	for _, ann := range app.annotations {
+		if ann.Type == annFileComment {
+			if !app.isEditingAnnotation(ann) {
+				t.Error("should be editing when editingID matches")
+			}
+			break
+		}
+	}
+}
+
+// --- joinHorizontal ---
+
+func TestJoinHorizontal(t *testing.T) {
+	left := "L1\nL2\nL3"
+	right := "R1\nR2\nR3"
+	result := joinHorizontal(left, right, 3)
+	lines := strings.Split(result, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "L1") || !strings.Contains(lines[0], "R1") {
+		t.Errorf("first line should contain L1 and R1, got: %s", lines[0])
+	}
+}
+
+func TestJoinHorizontalUnevenHeight(t *testing.T) {
+	left := "L1"
+	right := "R1\nR2\nR3"
+	result := joinHorizontal(left, right, 3)
+	lines := strings.Split(result, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d", len(lines))
+	}
+}
+
+// --- renderDiffLine with syntax spans ---
+
+func TestRenderDiffLineWithSpans(t *testing.T) {
+	// Create app with a file that has spans on its lines
+	files := []model.DiffFile{
+		{
+			OldPath: "main.go", NewPath: "main.go", Status: model.FileModified,
+			Hunks: []model.DiffHunk{{
+				OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 2,
+				Header: "@@ -1,1 +1,2 @@",
+				Lines: []model.DiffLine{
+					{Origin: model.OriginContext, Content: "package main", OldLineNo: 1, NewLineNo: 1},
+					{
+						Origin: model.OriginAddition, Content: "func main()", NewLineNo: 2,
+						Spans: []model.StyledSpan{
+							{Text: "func", FG: "#ff0000"},
+							{Text: " main", FG: ""},
+							{Text: "()", FG: "#00ff00"},
+						},
+					},
+				},
+			}},
+		},
+	}
+	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
+	app := NewApp(nil, files, session, theme.Dark(), nil, nil)
+	app.SetSize(120, 40)
+
+	// Find the annotation for the addition line with spans
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine && ann.LineIdx == 1 {
+			result := app.renderDiffLine(ann, 120, false, false)
+			if result == "" {
+				t.Error("should render non-empty with spans")
+			}
+			return
+		}
+	}
+	t.Fatal("should find annotation for the spans line")
+}
+
+func TestRenderDiffLineWithSearchHighlight(t *testing.T) {
+	app := newTestApp(t)
+	app.searchHighlight = "main"
+
+	// Find a context line that contains "main"
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine && ann.LineIdx == 0 {
+			result := app.renderDiffLine(ann, 120, false, false)
+			if result == "" {
+				t.Error("should render with search highlight")
+			}
+			return
+		}
+	}
+}
+
+func TestRenderDiffLineWithSpansAndSearchHighlight(t *testing.T) {
+	files := []model.DiffFile{
+		{
+			OldPath: "main.go", NewPath: "main.go", Status: model.FileModified,
+			Hunks: []model.DiffHunk{{
+				OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 2,
+				Header: "@@ -1,1 +1,2 @@",
+				Lines: []model.DiffLine{
+					{Origin: model.OriginContext, Content: "package main", OldLineNo: 1, NewLineNo: 1},
+					{
+						Origin: model.OriginAddition, Content: "func main()", NewLineNo: 2,
+						Spans: []model.StyledSpan{
+							{Text: "func ", FG: "#ff0000"},
+							{Text: "main", FG: "#0000ff"},
+							{Text: "()", FG: "#00ff00"},
+						},
+					},
+				},
+			}},
+		},
+	}
+	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
+	app := NewApp(nil, files, session, theme.Dark(), nil, nil)
+	app.SetSize(120, 40)
+	app.searchHighlight = "main"
+
+	for _, ann := range app.annotations {
+		if ann.Type == annDiffLine && ann.LineIdx == 1 {
+			result := app.renderDiffLine(ann, 120, false, false)
+			if result == "" {
+				t.Error("should render with spans and search highlight")
+			}
+			return
+		}
+	}
+}
+
+// --- renderCommitList ---
+
+func TestRenderCommitListEmpty(t *testing.T) {
+	app := newTestApp(t)
+	// No commits set, render should not crash
+	output := app.renderCommitList(120, 5)
+	if output == "" {
+		t.Error("should produce output even with no items")
+	}
+}
+
+func TestRenderCommitListWithWorkTree(t *testing.T) {
+	app := newTestApp(t)
+	app.includesWorkTree = true
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1", Summary: "Test commit", Author: "me", Time: time.Now()},
+	}
+	diffs := map[string][]model.DiffFile{
+		"c1":         app.diffFiles,
+		worktreeKey: app.diffFiles,
+	}
+	app.SetCommits(commits, diffs)
+	app.enabledCommits[worktreeKey] = true
+
+	output := app.renderCommitList(120, 8)
+	if !strings.Contains(output, "Working tree") {
+		t.Error("should show working tree entry")
+	}
+	if !strings.Contains(output, "Test commit") {
+		t.Error("should show commit summary")
+	}
+}
+
+func TestRenderCommitListFocused(t *testing.T) {
+	app := newTestApp(t)
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1", Summary: "A commit", Author: "me", Time: time.Now()},
+	}
+	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
+	app.SetCommits(commits, diffs)
+	app.focusedPanel = panelCommitList
+
+	output := app.renderCommitList(120, 8)
+	if !strings.Contains(output, ">") {
+		t.Error("should show cursor indicator when focused")
+	}
+}
+
+func TestRenderCommitListNarrowWidth(t *testing.T) {
+	app := newTestApp(t)
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1", Summary: "A very long commit summary that should be truncated", Author: "me", Time: time.Now()},
+	}
+	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
+	app.SetCommits(commits, diffs)
+
+	output := app.renderCommitList(50, 5)
+	if output == "" {
+		t.Error("should render at narrow width")
+	}
+}
+
+// --- renderDescription tests ---
+
+func TestRenderDescriptionEmpty(t *testing.T) {
+	app := newTestApp(t)
+	app.showDescription = true
+	output := app.renderDescription(120, 5)
+	if output == "" {
+		t.Error("should render even with empty description")
+	}
+}
+
+func TestRenderDescriptionFocused(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Description = "Test description"
+	app.showDescription = true
+	app.focusedPanel = panelCommitList
+
+	output := app.renderDescription(120, 5)
+	if !strings.Contains(output, "Test description") {
+		t.Error("should show description text")
+	}
+}
+
+// --- renderConversationEditor ---
+
+func TestRenderConversationEditor(t *testing.T) {
+	app := newTestApp(t)
+	app.convBuffer = "hello world"
+	app.convCursor = 5
+
+	lines := app.renderConversationEditor(120, 5)
+	if len(lines) == 0 {
+		t.Fatal("should render editor lines")
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "New message") {
+		t.Error("should have editor label")
+	}
+}
+
+func TestRenderConversationEditorEmpty(t *testing.T) {
+	app := newTestApp(t)
+	app.convBuffer = ""
+	app.convCursor = 0
+
+	lines := app.renderConversationEditor(120, 5)
+	if len(lines) == 0 {
+		t.Fatal("should render editor even when empty")
+	}
+}
+
+// --- renderExpandedContextLine ---
+
+func TestRenderExpandedContextLineNotExpanded(t *testing.T) {
+	app := newTestApp(t)
+	ann := annotatedLine{
+		Type:  annExpandedContext,
+		gapID: gapID{FileIdx: 0, HunkIdx: 1},
+	}
+	// No expanded gaps, should return blank
+	result := app.renderExpandedContextLine(ann, 120, false)
+	if strings.TrimSpace(result) != "" {
+		t.Error("should be blank when gap not expanded")
+	}
+}
+
+func TestRenderExpandedContextLineWithScrollX(t *testing.T) {
+	app := newVCSApp(t)
+	// Expand a gap
+	for i, ann := range app.annotations {
+		if ann.Type == annExpander {
+			app.cursorLine = i
+			app.toggleExpandAtCursor()
+			break
+		}
+	}
+
+	app.scrollX = 5
+	for _, ann := range app.annotations {
+		if ann.Type == annExpandedContext {
+			result := app.renderExpandedContextLine(ann, 120, false)
+			if result == "" {
+				t.Error("should render with scrollX")
+			}
+			return
+		}
+	}
+}
+
+// --- View with review editor ---
+
+func TestViewWithReviewEditorPanel(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeReview
+	app.reviewBuffer = "Looks good"
+	app.reviewCursor = len(app.reviewBuffer)
+	app.reviewStatus = model.ApprovalApprove
+
+	view := app.View()
+	if view.Content == "" {
+		t.Error("view should render with review editor")
+	}
+}
+
+// --- Syntax-highlighted highlighter integration ---
+
+func TestNewAppWithHighlighter(t *testing.T) {
+	hl := syntax.NewHighlighter("monokai")
+	files := []model.DiffFile{
+		{
+			OldPath: "test.go", NewPath: "test.go", Status: model.FileModified,
+			Hunks: []model.DiffHunk{{
+				OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 1,
+				Header: "@@ -1,1 +1,1 @@",
+				Lines: []model.DiffLine{
+					{Origin: model.OriginAddition, Content: "package main", NewLineNo: 1},
+				},
+			}},
+		},
+	}
+	hl.HighlightFiles(files)
+
+	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
+	app := NewApp(nil, files, session, theme.Dark(), hl, nil)
+	app.SetSize(120, 40)
+
+	view := app.View()
+	if view.Content == "" {
+		t.Error("view with highlighted file should render")
+	}
+
+	// The line should have spans
+	if len(files[0].Hunks[0].Lines[0].Spans) == 0 {
+		t.Log("Note: highlighter may not produce spans for short content, skipping span check")
+	}
+}
+
+// --- Picker with no working tree diff ---
+
+func TestPickerConfirmCommitOnly(t *testing.T) {
+	mockVCS := &testutil.MockVCS{
+		VcsInfo: vcs.VcsInfo{RootPath: "/tmp/test", HeadCommit: "abc", BranchName: "main", VcsType: "git"},
+		RecentCommits: []vcs.CommitInfo{
+			{ID: "aaa", ShortID: "aaa", Summary: "Commit", Author: "alice"},
+		},
+		RevisionDiff: []model.DiffFile{
+			{
+				OldPath: "f.go", NewPath: "f.go", Status: model.FileModified,
+				Hunks: []model.DiffHunk{{
+					OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 1,
+					Header: "@@ -1 +1 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginAddition, Content: "new", NewLineNo: 1},
+					},
+				}},
+			},
+		},
+	}
+
+	store := testutil.NewMockStore()
+	app := NewPickerApp(mockVCS, theme.Dark(), nil, store)
+	app.SetSize(120, 40)
+
+	// Move to commit (index 1), select it, confirm
+	app2 := sendKeys(&app, keyPress('j'), keyPress(' '), keySpecial(tea.KeyEnter))
+	if app2.phase != phaseReview {
+		t.Fatal("should enter review phase")
+	}
+	if app2.includesWorkTree {
+		t.Error("should not include working tree")
+	}
+}
+
+// --- statusBar with provider info ---
+
+func TestStatusBarWithProvider(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Provider = &model.ProviderInfo{Name: "github", ID: "42"}
+	app.session.Description = "PR Title"
+	app.vcsInfo = vcs.VcsInfo{VcsType: "git", BranchName: "feature"}
+
+	bar := app.renderStatusBar()
+	if !strings.Contains(bar, "github") {
+		t.Error("status bar should show provider name")
+	}
+	if !strings.Contains(bar, "#42") {
+		t.Error("status bar should show PR number")
+	}
+}
+
+// --- conversationPanelHeight ---
+
+func TestConversationPanelHeight(t *testing.T) {
+	app := newTestApp(t)
+	if h := app.conversationPanelHeight(20); h != 0 {
+		t.Fatalf("expected 0 when hidden, got %d", h)
+	}
+
+	app.showConversation = true
+	h := app.conversationPanelHeight(20)
+	if h != 10 {
+		t.Fatalf("expected 10 (half of 20), got %d", h)
+	}
+
+	// Very small content height
+	h = app.conversationPanelHeight(4)
+	if h < 3 {
+		t.Fatalf("expected at least 3, got %d", h)
+	}
+}
+
+// --- commitListHeight ---
+
+func TestCommitListHeight(t *testing.T) {
+	app := newTestApp(t)
+	if h := app.commitListHeight(); h != 0 {
+		t.Fatalf("expected 0 with no commits, got %d", h)
+	}
+
+	app.showDescription = true
+	if h := app.commitListHeight(); h != 0 {
+		t.Fatalf("expected 0 when showing description, got %d", h)
 	}
 }

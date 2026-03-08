@@ -1,12 +1,17 @@
 package ui
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/pgavlin/crtea/internal/testutil"
 	"github.com/pgavlin/crtea/model"
+	"github.com/pgavlin/crtea/provider/mock"
 	"github.com/pgavlin/crtea/theme"
+	"github.com/pgavlin/crtea/vcs"
 )
 
 // newTestApp creates a minimal App with a diff file containing a few lines,
@@ -1373,5 +1378,1502 @@ func TestSemicolonEMovesFocusWhenHiding(t *testing.T) {
 	}
 	if app.focusedPanel != panelDiff {
 		t.Fatalf("focus should move to panelDiff when hiding file list, got %d", app.focusedPanel)
+	}
+}
+
+// --- Comment key handling ---
+
+func TestCommentShiftEnterNewline(t *testing.T) {
+	app := newTestApp(t)
+	for app.cursorLine < len(app.annotations) && app.annotations[app.cursorLine].Type != annDiffLine {
+		app = sendKeys(app, keyPress('j'))
+	}
+
+	app = sendKeys(app, keyPress('c'))
+	app = sendKeys(app, keyPress('a'), keyPress('b'))
+	app = sendKeys(app, keyMod(tea.KeyEnter, tea.ModShift))
+	app = sendKeys(app, keyPress('c'), keyPress('d'))
+
+	if app.commentBuffer != "ab\ncd" {
+		t.Fatalf("commentBuffer = %q, want %q", app.commentBuffer, "ab\ncd")
+	}
+	if app.commentCursor != 5 {
+		t.Fatalf("commentCursor = %d, want 5", app.commentCursor)
+	}
+}
+
+func TestCommentBackspace(t *testing.T) {
+	app := newTestApp(t)
+	for app.cursorLine < len(app.annotations) && app.annotations[app.cursorLine].Type != annDiffLine {
+		app = sendKeys(app, keyPress('j'))
+	}
+
+	app = sendKeys(app, keyPress('c'))
+	app = sendKeys(app, keyPress('a'), keyPress('b'), keyPress('c'))
+	app = sendKeys(app, keySpecial(tea.KeyBackspace))
+
+	if app.commentBuffer != "ab" {
+		t.Fatalf("commentBuffer = %q, want %q", app.commentBuffer, "ab")
+	}
+}
+
+func TestCommentBackspaceAtStart(t *testing.T) {
+	app := newTestApp(t)
+	for app.cursorLine < len(app.annotations) && app.annotations[app.cursorLine].Type != annDiffLine {
+		app = sendKeys(app, keyPress('j'))
+	}
+
+	app = sendKeys(app, keyPress('c'))
+	// Backspace at position 0 should be a no-op
+	app = sendKeys(app, keySpecial(tea.KeyBackspace))
+	if app.commentCursor != 0 {
+		t.Fatalf("backspace at start should keep cursor at 0, got %d", app.commentCursor)
+	}
+}
+
+func TestCommentTabCyclesType(t *testing.T) {
+	app := newTestApp(t)
+	for app.cursorLine < len(app.annotations) && app.annotations[app.cursorLine].Type != annDiffLine {
+		app = sendKeys(app, keyPress('j'))
+	}
+
+	app = sendKeys(app, keyPress('c'))
+	if app.commentType != model.CommentNote {
+		t.Fatalf("initial type = %d, want CommentNote", app.commentType)
+	}
+
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	if app.commentType != model.CommentSuggestion {
+		t.Fatalf("after Tab, type = %d, want CommentSuggestion", app.commentType)
+	}
+
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	if app.commentType != model.CommentIssue {
+		t.Fatalf("after second Tab, type = %d, want CommentIssue", app.commentType)
+	}
+}
+
+func TestCommentEscapeDiscards(t *testing.T) {
+	app := newTestApp(t)
+	path := app.diffFiles[0].DisplayPath()
+	for app.cursorLine < len(app.annotations) && app.annotations[app.cursorLine].Type != annDiffLine {
+		app = sendKeys(app, keyPress('j'))
+	}
+
+	app = sendKeys(app, keyPress('c'))
+	app = sendKeys(app, keyPress('h'), keyPress('i'))
+	app = sendKeys(app, keySpecial(tea.KeyEscape))
+
+	if app.inputMode != modeNormal {
+		t.Fatalf("after Escape, mode = %d, want modeNormal", app.inputMode)
+	}
+
+	fr := app.session.GetFileReview(path)
+	total := 0
+	for _, c := range fr.LineComments {
+		total += len(c)
+	}
+	if total != 0 {
+		t.Fatalf("escaped comment should not be saved, got %d comments", total)
+	}
+}
+
+// --- Bug report mode ---
+
+func TestBugModeEntryAndEscape(t *testing.T) {
+	app := newTestApp(t)
+
+	// :bug enters bug mode
+	app = sendKeys(app, keyPress(':'))
+	app = sendKeys(app, keyPress('b'), keyPress('u'), keyPress('g'))
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.inputMode != modeBug {
+		t.Fatalf("after :bug, mode = %d, want modeBug", app.inputMode)
+	}
+
+	// Type some text
+	app = sendKeys(app, keyPress('h'), keyPress('i'))
+	if app.bugBuffer != "hi" {
+		t.Fatalf("bugBuffer = %q, want %q", app.bugBuffer, "hi")
+	}
+
+	// Escape exits
+	app = sendKeys(app, keySpecial(tea.KeyEscape))
+	if app.inputMode != modeNormal {
+		t.Fatalf("after Escape, mode = %d, want modeNormal", app.inputMode)
+	}
+	if app.bugBuffer != "" {
+		t.Fatalf("bugBuffer should be cleared after Escape, got %q", app.bugBuffer)
+	}
+}
+
+func TestBugModeShiftEnterNewline(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeBug
+	app.bugBuffer = ""
+	app.bugCursor = 0
+
+	app = sendKeys(app, keyPress('a'))
+	app = sendKeys(app, keyMod(tea.KeyEnter, tea.ModShift))
+	app = sendKeys(app, keyPress('b'))
+
+	if app.bugBuffer != "a\nb" {
+		t.Fatalf("bugBuffer = %q, want %q", app.bugBuffer, "a\nb")
+	}
+}
+
+func TestBugModeBackspace(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeBug
+	app.bugBuffer = ""
+	app.bugCursor = 0
+
+	app = sendKeys(app, keyPress('a'), keyPress('b'))
+	app = sendKeys(app, keySpecial(tea.KeyBackspace))
+
+	if app.bugBuffer != "a" {
+		t.Fatalf("bugBuffer = %q, want %q", app.bugBuffer, "a")
+	}
+}
+
+// --- Conversation mode ---
+
+func TestConversationModeEntryAndEscape(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeConversation
+	app.convBuffer = ""
+	app.convCursor = 0
+
+	app = sendKeys(app, keyPress('h'), keyPress('i'))
+	if app.convBuffer != "hi" {
+		t.Fatalf("convBuffer = %q, want %q", app.convBuffer, "hi")
+	}
+
+	app = sendKeys(app, keySpecial(tea.KeyEscape))
+	if app.inputMode != modeNormal {
+		t.Fatalf("after Escape, mode = %d, want modeNormal", app.inputMode)
+	}
+	if app.convBuffer != "" {
+		t.Fatalf("convBuffer should be cleared, got %q", app.convBuffer)
+	}
+}
+
+func TestConversationShiftEnter(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeConversation
+	app.convBuffer = ""
+	app.convCursor = 0
+
+	app = sendKeys(app, keyPress('a'))
+	app = sendKeys(app, keyMod(tea.KeyEnter, tea.ModShift))
+	app = sendKeys(app, keyPress('b'))
+
+	if app.convBuffer != "a\nb" {
+		t.Fatalf("convBuffer = %q, want %q", app.convBuffer, "a\nb")
+	}
+}
+
+func TestConversationBackspace(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeConversation
+	app.convBuffer = ""
+	app.convCursor = 0
+
+	app = sendKeys(app, keyPress('x'), keyPress('y'))
+	app = sendKeys(app, keySpecial(tea.KeyBackspace))
+
+	if app.convBuffer != "x" {
+		t.Fatalf("convBuffer = %q, want %q", app.convBuffer, "x")
+	}
+}
+
+func TestConversationSave(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeConversation
+	app.convBuffer = ""
+	app.convCursor = 0
+
+	app = sendKeys(app, keyPress('h'), keyPress('i'))
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.inputMode != modeNormal {
+		t.Fatalf("after Enter, mode = %d, want modeNormal", app.inputMode)
+	}
+	if len(app.session.Conversation) != 1 {
+		t.Fatalf("expected 1 conversation comment, got %d", len(app.session.Conversation))
+	}
+	if app.session.Conversation[0].Body != "hi" {
+		t.Fatalf("conversation body = %q, want %q", app.session.Conversation[0].Body, "hi")
+	}
+}
+
+func TestConversationEmptyDiscards(t *testing.T) {
+	app := newTestApp(t)
+	app.inputMode = modeConversation
+	app.convBuffer = ""
+	app.convCursor = 0
+
+	// Enter with empty body should not create comment
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if len(app.session.Conversation) != 0 {
+		t.Fatalf("empty conversation should not be saved, got %d", len(app.session.Conversation))
+	}
+}
+
+// --- Review key handling ---
+
+func TestReviewShiftEnterNewline(t *testing.T) {
+	app := newTestApp(t)
+	app = sendKeys(app, upperKey('r', 'R'))
+
+	app = sendKeys(app, keyPress('a'))
+	app = sendKeys(app, keyMod(tea.KeyEnter, tea.ModShift))
+	app = sendKeys(app, keyPress('b'))
+
+	if app.reviewBuffer != "a\nb" {
+		t.Fatalf("reviewBuffer = %q, want %q", app.reviewBuffer, "a\nb")
+	}
+}
+
+func TestReviewBackspace(t *testing.T) {
+	app := newTestApp(t)
+	app = sendKeys(app, upperKey('r', 'R'))
+
+	app = sendKeys(app, keyPress('a'), keyPress('b'))
+	app = sendKeys(app, keySpecial(tea.KeyBackspace))
+
+	if app.reviewBuffer != "a" {
+		t.Fatalf("reviewBuffer = %q, want %q", app.reviewBuffer, "a")
+	}
+}
+
+func TestReviewEmptyNeutralClearsReview(t *testing.T) {
+	app := newTestApp(t)
+	// Set an existing review
+	app.session.OverallReview = &model.OverallReview{Body: "old", Status: model.ApprovalApprove}
+
+	app = sendKeys(app, upperKey('r', 'R'))
+	// Clear buffer and set neutral
+	app.reviewBuffer = ""
+	app.reviewCursor = 0
+	app.reviewStatus = model.ApprovalNeutral
+
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.session.OverallReview != nil {
+		t.Fatal("empty neutral review should clear OverallReview")
+	}
+}
+
+// --- Help key handling ---
+
+func TestHelpNavigationKeys(t *testing.T) {
+	app := newTestApp(t)
+	app = sendKeys(app, keyPress('?'))
+
+	// j scrolls down
+	app = sendKeys(app, keyPress('j'))
+	if app.helpScroll != 1 {
+		t.Fatalf("after j, helpScroll = %d, want 1", app.helpScroll)
+	}
+
+	// k scrolls back
+	app = sendKeys(app, keyPress('k'))
+	if app.helpScroll != 0 {
+		t.Fatalf("after k, helpScroll = %d, want 0", app.helpScroll)
+	}
+
+	// k at 0 stays at 0
+	app = sendKeys(app, keyPress('k'))
+	if app.helpScroll != 0 {
+		t.Fatalf("k at 0 should stay 0, got %d", app.helpScroll)
+	}
+
+	// Ctrl-d half page
+	app = sendKeys(app, keyMod('d', tea.ModCtrl))
+	if app.helpScroll <= 0 {
+		t.Fatal("Ctrl-d should scroll down in help")
+	}
+	saved := app.helpScroll
+
+	// Ctrl-u half page back
+	app = sendKeys(app, keyMod('u', tea.ModCtrl))
+	if app.helpScroll >= saved {
+		t.Fatal("Ctrl-u should scroll up in help")
+	}
+
+	// g goes to top
+	app.helpScroll = 10
+	app = sendKeys(app, keyPress('g'))
+	if app.helpScroll != 0 {
+		t.Fatalf("g should go to top, got %d", app.helpScroll)
+	}
+
+	// G goes to bottom
+	app = sendKeys(app, upperKey('g', 'G'))
+	if app.helpScroll == 0 {
+		t.Fatal("G should go to bottom")
+	}
+}
+
+// --- :q with unsaved changes ---
+
+func TestQuitWarnsOnDirty(t *testing.T) {
+	app := newTestApp(t)
+	app.dirty = true
+
+	app = sendKeys(app, keyPress(':'))
+	app = sendKeys(app, keyPress('q'))
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.message == nil || !strings.Contains(app.message.text, "Unsaved changes") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected unsaved changes warning, got %q", msg)
+	}
+	if !app.quitWarned {
+		t.Fatal("quitWarned should be set")
+	}
+}
+
+// --- :e / :reload without VCS ---
+
+func TestReloadWithoutVCS(t *testing.T) {
+	app := newTestApp(t)
+
+	app = sendKeys(app, keyPress(':'))
+	app = sendKeys(app, keyPress('e'))
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.message == nil || app.message.text != "Reload requires a VCS backend" {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected VCS warning, got %q", msg)
+	}
+}
+
+// --- :clip / :export ---
+
+func TestExportNoComments(t *testing.T) {
+	app := newTestApp(t)
+
+	app = sendKeys(app, keyPress(':'))
+	app = sendKeys(app, keyPress('c'), keyPress('l'), keyPress('i'), keyPress('p'))
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.message == nil || app.message.text != "No comments to export" {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected no comments warning, got %q", msg)
+	}
+}
+
+func TestExportWithComments(t *testing.T) {
+	app := newTestApp(t)
+	path := app.diffFiles[0].DisplayPath()
+	fr := app.session.GetOrCreateFileReview(path, model.FileModified)
+	fr.AddFileComment(model.NewComment("note", model.CommentNote, model.SideNew))
+
+	app = sendKeys(app, keyPress(':'))
+	app = sendKeys(app, keyPress('c'), keyPress('l'), keyPress('i'), keyPress('p'))
+
+	// Capture the command returned by executeCommand
+	m, cmd := app.Update(keySpecial(tea.KeyEnter))
+	app = m.(*App)
+
+	if cmd == nil {
+		t.Fatal("export should return a command")
+	}
+	if app.message == nil || !strings.Contains(app.message.text, "Exported") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected export message, got %q", msg)
+	}
+}
+
+// --- Search backward (N) ---
+
+func TestSearchBackward(t *testing.T) {
+	app := newTwoFileApp(t)
+
+	// Search for "new"
+	app = sendKeys(app, keyPress('/'))
+	app = sendKeys(app, keyPress('n'), keyPress('e'), keyPress('w'))
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	first := app.cursorLine
+
+	// Go forward
+	app = sendKeys(app, keyPress('n'))
+	second := app.cursorLine
+	if second <= first {
+		t.Fatalf("n should go forward, was %d now %d", first, second)
+	}
+
+	// N goes backward
+	app = sendKeys(app, upperKey('n', 'N'))
+	if app.cursorLine >= second {
+		t.Fatalf("N should go backward, was %d now %d", second, app.cursorLine)
+	}
+}
+
+func TestSearchNotFound(t *testing.T) {
+	app := newTestApp(t)
+
+	app = sendKeys(app, keyPress('/'))
+	app = sendKeys(app, keyPress('z'), keyPress('z'), keyPress('z'), keyPress('z'))
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+	if app.message == nil || !strings.Contains(app.message.text, "Pattern not found") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected not found message, got %q", msg)
+	}
+}
+
+// --- File list directory collapse/expand ---
+
+func TestFileListDirCollapse(t *testing.T) {
+	app := newMultiFileApp(t)
+
+	// Focus file list
+	app = sendKeys(app, keyPress(';'), keyPress('h'))
+	initialRows := len(app.fileTreeRows)
+
+	// Find a directory row and collapse it
+	for i, row := range app.fileTreeRows {
+		if row.IsDir {
+			app.fileListCursor = i
+			app = sendKeys(app, keySpecial(tea.KeyEnter))
+
+			if len(app.fileTreeRows) >= initialRows {
+				t.Error("collapsing dir should reduce visible rows")
+			}
+
+			// Expand again
+			app = sendKeys(app, keySpecial(tea.KeyEnter))
+			if len(app.fileTreeRows) != initialRows {
+				t.Errorf("expanding should restore rows: got %d want %d", len(app.fileTreeRows), initialRows)
+			}
+			return
+		}
+	}
+	t.Skip("no directory rows in test data")
+}
+
+// --- Cursor movement in file list panel ---
+
+func TestCursorDownInFileListPanel(t *testing.T) {
+	app := newTwoFileApp(t)
+	app = sendKeys(app, keyPress(';'), keyPress('h'))
+
+	start := app.fileListCursor
+	app = sendKeys(app, keyPress('j'), keyPress('j'))
+	if app.fileListCursor <= start {
+		t.Fatalf("j in file list should move down, was %d now %d", start, app.fileListCursor)
+	}
+
+	app = sendKeys(app, keyPress('k'))
+	if app.fileListCursor >= start+2 {
+		t.Fatalf("k in file list should move up")
+	}
+}
+
+func TestCursorBoundsInFileList(t *testing.T) {
+	app := newTwoFileApp(t)
+	app = sendKeys(app, keyPress(';'), keyPress('h'))
+
+	// Many k's shouldn't go negative
+	for i := 0; i < 20; i++ {
+		app = sendKeys(app, keyPress('k'))
+	}
+	if app.fileListCursor < 0 {
+		t.Fatalf("cursor went negative: %d", app.fileListCursor)
+	}
+
+	// Many j's shouldn't exceed bounds
+	for i := 0; i < 100; i++ {
+		app = sendKeys(app, keyPress('j'))
+	}
+	if app.fileListCursor >= len(app.fileTreeRows) {
+		t.Fatalf("cursor exceeded bounds: %d >= %d", app.fileListCursor, len(app.fileTreeRows))
+	}
+}
+
+// --- Pending prefix cancelled by unknown key ---
+
+func TestPendingPrefixCancelledByUnknownKey(t *testing.T) {
+	app := newTestApp(t)
+
+	// 'd' sets pending prefix, then 'x' (not 'd') should cancel
+	app = sendKeys(app, keyPress('d'))
+	if app.pendingPrefix != 'd' {
+		t.Fatalf("pendingPrefix = %c, want 'd'", app.pendingPrefix)
+	}
+
+	app = sendKeys(app, keyPress('x'))
+	if app.pendingPrefix != 0 {
+		t.Fatalf("pendingPrefix should be cleared after unknown key, got %c", app.pendingPrefix)
+	}
+}
+
+// --- Home key ---
+
+func TestHomeKeyResetsScroll(t *testing.T) {
+	app := newTestApp(t)
+	app = sendKeys(app, keyPress('l'), keyPress('l'), keyPress('l'))
+	app = sendKeys(app, keySpecial(tea.KeyHome))
+	if app.scrollX != 0 {
+		t.Fatalf("Home should reset scrollX, got %d", app.scrollX)
+	}
+}
+
+// --- Visual select on non-diff line ---
+
+func TestVisualSelectOnNonDiffLine(t *testing.T) {
+	app := newTestApp(t)
+	// Cursor starts on file header (non-diff line)
+	app = sendKeys(app, keyPress('v'))
+	if app.inputMode == modeVisualSelect {
+		t.Fatal("should not enter visual select on non-diff line")
+	}
+	if app.message == nil || !strings.Contains(app.message.text, "diff line") {
+		t.Error("expected warning about needing a diff line")
+	}
+}
+
+// --- Line comment on non-diff line ---
+
+func TestCommentOnNonDiffLine(t *testing.T) {
+	app := newTestApp(t)
+	// Cursor on file header
+	app = sendKeys(app, keyPress('c'))
+	if app.inputMode == modeComment {
+		t.Fatal("should not enter comment mode on non-diff line")
+	}
+}
+
+// --- Edit on non-comment line ---
+
+func TestEditOnNonCommentLine(t *testing.T) {
+	app := newTestApp(t)
+	app = sendKeys(app, keyPress('i'))
+	if app.message == nil || !strings.Contains(app.message.text, "comment to edit") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected edit warning, got %q", msg)
+	}
+}
+
+// --- Picker tests ---
+
+func newPickerApp(t *testing.T) *App {
+	t.Helper()
+
+	mockVCS := &testutil.MockVCS{
+		VcsInfo: vcs.VcsInfo{
+			RootPath:   "/tmp/test",
+			HeadCommit: "abc123",
+			BranchName: "main",
+			VcsType:    "git",
+		},
+		RecentCommits: []vcs.CommitInfo{
+			{ID: "aaa", ShortID: "aaa", Summary: "First commit", Author: "alice", Time: time.Now().Add(-1 * time.Hour)},
+			{ID: "bbb", ShortID: "bbb", Summary: "Second commit", Author: "bob", Time: time.Now().Add(-2 * time.Hour)},
+		},
+		WorkingTreeDiff: []model.DiffFile{
+			{
+				OldPath: "wt.go", NewPath: "wt.go", Status: model.FileModified,
+				Hunks: []model.DiffHunk{{
+					OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 2,
+					Header: "@@ -1,1 +1,2 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginContext, Content: "pkg", OldLineNo: 1, NewLineNo: 1},
+						{Origin: model.OriginAddition, Content: "new", NewLineNo: 2},
+					},
+				}},
+			},
+		},
+		RevisionDiff: []model.DiffFile{
+			{
+				OldPath: "rev.go", NewPath: "rev.go", Status: model.FileModified,
+				Hunks: []model.DiffHunk{{
+					OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 1,
+					Header: "@@ -1,1 +1,1 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginDeletion, Content: "old", OldLineNo: 1},
+						{Origin: model.OriginAddition, Content: "new", NewLineNo: 1},
+					},
+				}},
+			},
+		},
+	}
+
+	store := testutil.NewMockStore()
+	app := NewPickerApp(mockVCS, theme.Dark(), nil, store)
+	app.SetSize(120, 40)
+	return &app
+}
+
+func newProviderApp(t *testing.T) *App {
+	t.Helper()
+
+	app := newTestApp(t)
+	app.session.Provider = &model.ProviderInfo{Name: "github", ID: "42", URL: "https://example.com/pr/42"}
+	app.session.Reviewer = "me"
+	app.provider = mock.New()
+	app.providerID = "42"
+	app.store = testutil.NewMockStore()
+	return app
+}
+
+func newVCSApp(t *testing.T) *App {
+	t.Helper()
+
+	mockVCS := &testutil.MockVCS{
+		VcsInfo: vcs.VcsInfo{RootPath: "/tmp/test", HeadCommit: "abc", BranchName: "main", VcsType: "git"},
+		ContextLines: []model.DiffLine{
+			{Origin: model.OriginContext, Content: "expanded line 1", OldLineNo: 4, NewLineNo: 4},
+			{Origin: model.OriginContext, Content: "expanded line 2", OldLineNo: 5, NewLineNo: 5},
+		},
+	}
+
+	// Create a file with two hunks so there's an expandable gap
+	files := []model.DiffFile{
+		{
+			OldPath: "gap.go", NewPath: "gap.go", Status: model.FileModified,
+			Hunks: []model.DiffHunk{
+				{
+					OldStart: 1, OldCount: 3, NewStart: 1, NewCount: 3,
+					Header: "@@ -1,3 +1,3 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginContext, Content: "pkg", OldLineNo: 1, NewLineNo: 1},
+						{Origin: model.OriginDeletion, Content: "old", OldLineNo: 2},
+						{Origin: model.OriginAddition, Content: "new", NewLineNo: 2},
+						{Origin: model.OriginContext, Content: "end", OldLineNo: 3, NewLineNo: 3},
+					},
+				},
+				{
+					OldStart: 10, OldCount: 2, NewStart: 10, NewCount: 2,
+					Header: "@@ -10,2 +10,2 @@",
+					Lines: []model.DiffLine{
+						{Origin: model.OriginDeletion, Content: "old10", OldLineNo: 10},
+						{Origin: model.OriginAddition, Content: "new10", NewLineNo: 10},
+						{Origin: model.OriginContext, Content: "end10", OldLineNo: 11, NewLineNo: 11},
+					},
+				},
+			},
+		},
+	}
+
+	session := model.NewSession("/tmp/test", "main", "abc", model.DiffWorkingTree)
+	for _, f := range files {
+		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
+	}
+
+	app := NewApp(mockVCS, files, session, theme.Dark(), nil, nil)
+	app.SetSize(120, 40)
+	return &app
+}
+
+func TestPickerPhase(t *testing.T) {
+	app := newPickerApp(t)
+	if app.phase != phasePicker {
+		t.Fatal("expected picker phase")
+	}
+	// Should have working tree + 2 commits = 3 items
+	if len(app.pickerItems) != 3 {
+		t.Fatalf("expected 3 picker items, got %d", len(app.pickerItems))
+	}
+}
+
+func TestPickerNavigation(t *testing.T) {
+	app := newPickerApp(t)
+	if app.pickerCursor != 0 {
+		t.Fatalf("expected cursor at 0, got %d", app.pickerCursor)
+	}
+
+	app = sendKeys(app, keyPress('j'))
+	if app.pickerCursor != 1 {
+		t.Fatalf("expected cursor at 1, got %d", app.pickerCursor)
+	}
+
+	app = sendKeys(app, keyPress('k'))
+	if app.pickerCursor != 0 {
+		t.Fatalf("expected cursor at 0, got %d", app.pickerCursor)
+	}
+
+	// G goes to end
+	app = sendKeys(app, upperKey('g', 'G'))
+	if app.pickerCursor != 2 {
+		t.Fatalf("expected cursor at 2, got %d", app.pickerCursor)
+	}
+
+	// g goes to start
+	app = sendKeys(app, keyPress('g'))
+	if app.pickerCursor != 0 {
+		t.Fatalf("expected cursor at 0, got %d", app.pickerCursor)
+	}
+}
+
+func TestPickerToggleSelection(t *testing.T) {
+	app := newPickerApp(t)
+	// Space toggles selection
+	app = sendKeys(app, keyPress(' '))
+	if !app.pickerSelected[0] {
+		t.Fatal("item 0 should be selected")
+	}
+	app = sendKeys(app, keyPress(' '))
+	if app.pickerSelected[0] {
+		t.Fatal("item 0 should be deselected")
+	}
+}
+
+func TestPickerConfirmWithSelection(t *testing.T) {
+	app := newPickerApp(t)
+	// Select working tree and first commit
+	app = sendKeys(app, keyPress(' '))  // select working tree
+	app = sendKeys(app, keyPress('j'))  // move to commit
+	app = sendKeys(app, keyPress(' '))  // select commit
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.phase != phaseReview {
+		t.Fatal("expected review phase after confirm")
+	}
+	if len(app.diffFiles) == 0 {
+		t.Fatal("expected diff files after confirm")
+	}
+	if app.session == nil {
+		t.Fatal("expected session after confirm")
+	}
+}
+
+func TestPickerConfirmNoSelection(t *testing.T) {
+	app := newPickerApp(t)
+	// Enter with no selection => uses cursor item
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.phase != phaseReview {
+		t.Fatal("expected review phase")
+	}
+}
+
+func TestPickerQuit(t *testing.T) {
+	app := newPickerApp(t)
+	_, cmd := app.Update(keyPress('q'))
+	if cmd == nil {
+		t.Fatal("expected quit command")
+	}
+	msg := cmd()
+	if _, ok := msg.(DoneMsg); !ok {
+		t.Fatalf("expected DoneMsg, got %T", msg)
+	}
+}
+
+func TestPickerRenderView(t *testing.T) {
+	app := newPickerApp(t)
+	view := app.View()
+	if !strings.Contains(view.Content, "Select what to review") {
+		t.Error("picker view should contain title")
+	}
+	if !strings.Contains(view.Content, "Working tree") {
+		t.Error("picker view should show working tree option")
+	}
+	if !strings.Contains(view.Content, "First commit") {
+		t.Error("picker view should show commit summaries")
+	}
+}
+
+func TestPickerDownArrow(t *testing.T) {
+	app := newPickerApp(t)
+	app = sendKeys(app, keySpecial(tea.KeyDown))
+	if app.pickerCursor != 1 {
+		t.Fatalf("expected cursor 1, got %d", app.pickerCursor)
+	}
+	app = sendKeys(app, keySpecial(tea.KeyUp))
+	if app.pickerCursor != 0 {
+		t.Fatalf("expected cursor 0, got %d", app.pickerCursor)
+	}
+}
+
+func TestPickerBoundsCheck(t *testing.T) {
+	app := newPickerApp(t)
+	// Try going above 0
+	app = sendKeys(app, keyPress('k'))
+	if app.pickerCursor != 0 {
+		t.Fatalf("cursor should stay at 0, got %d", app.pickerCursor)
+	}
+	// Go past end
+	for i := 0; i < 10; i++ {
+		app = sendKeys(app, keyPress('j'))
+	}
+	if app.pickerCursor != len(app.pickerItems)-1 {
+		t.Fatalf("cursor should be at last item")
+	}
+}
+
+// --- SetCommits and commit list tests ---
+
+func TestSetCommits(t *testing.T) {
+	app := newTestApp(t)
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1", Summary: "Commit 1"},
+		{ID: "c2", ShortID: "c2", Summary: "Commit 2"},
+	}
+	diffs := map[string][]model.DiffFile{
+		"c1": {{OldPath: "f1.go", NewPath: "f1.go", Status: model.FileModified}},
+		"c2": {{OldPath: "f2.go", NewPath: "f2.go", Status: model.FileModified}},
+	}
+	app.SetCommits(commits, diffs)
+
+	if len(app.reviewCommits) != 2 {
+		t.Fatalf("expected 2 commits, got %d", len(app.reviewCommits))
+	}
+	if !app.enabledCommits["c1"] || !app.enabledCommits["c2"] {
+		t.Fatal("all commits should be enabled")
+	}
+	if app.combinedDiffFiles == nil {
+		t.Fatal("combinedDiffFiles should be saved")
+	}
+}
+
+func TestCommitListRender(t *testing.T) {
+	app := newTestApp(t)
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1", Summary: "Commit 1", Author: "alice", Time: time.Now().Add(-10 * time.Minute)},
+		{ID: "c2", ShortID: "c2", Summary: "Commit 2", Author: "bob", Time: time.Now().Add(-1 * time.Hour)},
+	}
+	diffs := map[string][]model.DiffFile{
+		"c1": app.diffFiles,
+		"c2": app.diffFiles,
+	}
+	app.SetCommits(commits, diffs)
+
+	output := app.renderCommitList(120, 8)
+	if !strings.Contains(output, "Commit 1") {
+		t.Error("commit list should show commit summaries")
+	}
+	if !strings.Contains(output, "alice") {
+		t.Error("commit list should show author")
+	}
+}
+
+func TestToggleCommitAtCursor(t *testing.T) {
+	app := newTestApp(t)
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1", Summary: "Commit 1"},
+	}
+	diffs := map[string][]model.DiffFile{
+		"c1": app.diffFiles,
+	}
+	app.SetCommits(commits, diffs)
+	app.commitCursor = 0
+
+	app.toggleCommitAtCursor()
+	if app.enabledCommits["c1"] {
+		t.Fatal("commit should be disabled after toggle")
+	}
+	app.toggleCommitAtCursor()
+	if !app.enabledCommits["c1"] {
+		t.Fatal("commit should be re-enabled after second toggle")
+	}
+}
+
+func TestAllCommitsEnabled(t *testing.T) {
+	app := newTestApp(t)
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1"},
+		{ID: "c2", ShortID: "c2"},
+	}
+	diffs := map[string][]model.DiffFile{
+		"c1": app.diffFiles,
+		"c2": app.diffFiles,
+	}
+	app.SetCommits(commits, diffs)
+	if !app.allCommitsEnabled() {
+		t.Fatal("all commits should be enabled initially")
+	}
+
+	delete(app.enabledCommits, "c1")
+	if app.allCommitsEnabled() {
+		t.Fatal("should not be all enabled after deleting one")
+	}
+}
+
+func TestMergeEnabledDiffs(t *testing.T) {
+	app := newTestApp(t)
+	f1 := model.DiffFile{OldPath: "a.go", NewPath: "a.go", Status: model.FileModified,
+		Hunks: []model.DiffHunk{{Header: "@@ -1 +1 @@"}}}
+	f2 := model.DiffFile{OldPath: "b.go", NewPath: "b.go", Status: model.FileAdded,
+		Hunks: []model.DiffHunk{{Header: "@@ -0,0 +1 @@"}}}
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1"},
+		{ID: "c2", ShortID: "c2"},
+	}
+	diffs := map[string][]model.DiffFile{
+		"c1": {f1},
+		"c2": {f2},
+	}
+	app.SetCommits(commits, diffs)
+
+	// Disable c2
+	delete(app.enabledCommits, "c2")
+	merged := app.mergeEnabledDiffs()
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 merged file, got %d", len(merged))
+	}
+	if merged[0].NewPath != "a.go" {
+		t.Errorf("expected a.go, got %s", merged[0].NewPath)
+	}
+}
+
+func TestRebuildFromCommits(t *testing.T) {
+	app := newTestApp(t)
+	f1 := model.DiffFile{OldPath: "x.go", NewPath: "x.go", Status: model.FileModified,
+		Hunks: []model.DiffHunk{{
+			OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 1,
+			Header: "@@ -1,1 +1,1 @@",
+			Lines:  []model.DiffLine{{Origin: model.OriginContext, Content: "pkg", OldLineNo: 1, NewLineNo: 1}},
+		}},
+	}
+	commits := []vcs.CommitInfo{{ID: "c1", ShortID: "c1"}}
+	diffs := map[string][]model.DiffFile{"c1": {f1}}
+	app.SetCommits(commits, diffs)
+
+	// When all enabled, uses combinedDiffFiles
+	app.rebuildFromCommits()
+	// Should not crash and should maintain a valid state
+	if len(app.annotations) == 0 {
+		t.Fatal("annotations should be rebuilt")
+	}
+}
+
+func TestTopPanelHeight(t *testing.T) {
+	app := newTestApp(t)
+	// No commits => height 0
+	if h := app.topPanelHeight(); h != 0 {
+		t.Fatalf("expected 0 with no commits, got %d", h)
+	}
+
+	// With commits
+	commits := []vcs.CommitInfo{{ID: "c1", ShortID: "c1"}}
+	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
+	app.SetCommits(commits, diffs)
+	h := app.topPanelHeight()
+	if h < 2 {
+		t.Fatalf("expected at least 2 for 1 commit + separator, got %d", h)
+	}
+}
+
+// --- Description rendering ---
+
+func TestRenderDescription(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Description = "Line 1\nLine 2\nLine 3"
+	app.showDescription = true
+
+	output := app.renderDescription(120, 8)
+	if !strings.Contains(output, "Line 1") || !strings.Contains(output, "Line 2") {
+		t.Error("description should show content lines")
+	}
+}
+
+func TestDescriptionScroll(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Description = "L1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10"
+	app.showDescription = true
+	app.descScroll = 5
+
+	output := app.renderDescription(120, 5)
+	if output == "" {
+		t.Error("description should render with scroll")
+	}
+}
+
+// --- Conversation rendering ---
+
+func TestRenderConversation(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Conversation = []model.ConversationComment{
+		{Author: "alice", Body: "Hello", CreatedAt: time.Now()},
+		{Author: "bob", Body: "World", CreatedAt: time.Now()},
+	}
+	app.showConversation = true
+
+	output := app.renderConversation(120, 10, false)
+	if !strings.Contains(output, "alice") {
+		t.Error("should show author")
+	}
+	if !strings.Contains(output, "Hello") {
+		t.Error("should show message body")
+	}
+}
+
+func TestRenderConversationEmpty(t *testing.T) {
+	app := newTestApp(t)
+	app.showConversation = true
+
+	output := app.renderConversation(120, 10, false)
+	if !strings.Contains(output, "No conversation") {
+		t.Error("should show empty message")
+	}
+}
+
+func TestRenderConversationWithEditor(t *testing.T) {
+	app := newTestApp(t)
+	app.showConversation = true
+	app.inputMode = modeConversation
+	app.convBuffer = "typing..."
+	app.convCursor = len(app.convBuffer)
+
+	output := app.renderConversation(120, 12, true)
+	if !strings.Contains(output, "New message") {
+		t.Error("should show editor")
+	}
+}
+
+// --- View with conversation panel ---
+
+func TestViewWithConversationPanel(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Conversation = []model.ConversationComment{
+		{Author: "alice", Body: "test", CreatedAt: time.Now()},
+	}
+	app.showConversation = true
+
+	view := app.View()
+	if !strings.Contains(view.Content, "Conversation") {
+		t.Error("view should include conversation panel")
+	}
+}
+
+// --- View with description panel ---
+
+func TestViewWithDescriptionPanel(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Description = "PR description text"
+	app.showDescription = true
+	commits := []vcs.CommitInfo{{ID: "c1", ShortID: "c1"}}
+	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
+	app.SetCommits(commits, diffs)
+
+	view := app.View()
+	if !strings.Contains(view.Content, "PR description text") {
+		t.Error("view should include description")
+	}
+}
+
+// --- Provider-dependent commands ---
+
+func TestSubmitToProviderNoProvider(t *testing.T) {
+	app := newTestApp(t)
+	app.submitToProvider()
+	if app.message == nil || !strings.Contains(app.message.text, "Not connected") {
+		t.Error("should warn about no provider")
+	}
+}
+
+func TestRefreshFromProviderNoProvider(t *testing.T) {
+	app := newTestApp(t)
+	app.refreshFromProvider()
+	if app.message == nil || !strings.Contains(app.message.text, "Not connected") {
+		t.Error("should warn about no provider")
+	}
+}
+
+func TestPostConversationCommentNoProvider(t *testing.T) {
+	app := newTestApp(t)
+	app.postConversationComment()
+	if app.message == nil || !strings.Contains(app.message.text, "Not connected") {
+		t.Error("should warn about no provider")
+	}
+}
+
+func TestPostConversationCommentWithProvider(t *testing.T) {
+	app := newProviderApp(t)
+	app.postConversationComment()
+	if app.inputMode != modeConversation {
+		t.Fatal("should enter conversation mode")
+	}
+	if !app.showConversation {
+		t.Fatal("should show conversation panel")
+	}
+}
+
+func TestSubmitToProviderWithProvider(t *testing.T) {
+	app := newProviderApp(t)
+	app.submitToProvider()
+	if app.inputMode != modeConfirm {
+		t.Fatal("should enter confirm mode")
+	}
+	if !strings.Contains(app.confirmPrompt, "Submit review") {
+		t.Errorf("prompt should mention submit, got %q", app.confirmPrompt)
+	}
+}
+
+func TestSubmitToProviderConfirm(t *testing.T) {
+	app := newProviderApp(t)
+	// Add a comment to submit
+	fr := app.session.GetOrCreateFileReview("a.go", model.FileModified)
+	c := model.NewComment("test comment", model.CommentNote, model.SideNew)
+	fr.AddLineComment(2, c)
+
+	app.submitToProvider()
+	if app.inputMode != modeConfirm {
+		t.Fatal("should enter confirm mode")
+	}
+	// Simulate confirm (y)
+	app = sendKeys(app, keyPress('y'))
+	if app.message == nil || !strings.Contains(app.message.text, "submitted") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected submitted message, got %q", msg)
+	}
+}
+
+func TestRefreshFromProviderWithProvider(t *testing.T) {
+	app := newProviderApp(t)
+	app.refreshFromProvider()
+	if app.message == nil || !strings.Contains(app.message.text, "Refreshed") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected refresh message, got %q", msg)
+	}
+}
+
+func TestConversationModeTypingAndSubmit(t *testing.T) {
+	app := newProviderApp(t)
+	app.postConversationComment()
+	if app.inputMode != modeConversation {
+		t.Fatal("should be in conversation mode")
+	}
+	// Type a message
+	app = sendKeys(app,
+		keyPress('h'), keyPress('e'), keyPress('l'), keyPress('l'), keyPress('o'),
+	)
+	if app.convBuffer != "hello" {
+		t.Fatalf("expected 'hello', got %q", app.convBuffer)
+	}
+	// Submit with enter
+	app = sendKeys(app, keySpecial(tea.KeyEnter))
+	if app.inputMode != modeNormal {
+		t.Fatal("should return to normal mode after submit")
+	}
+	if len(app.session.Conversation) == 0 {
+		t.Fatal("should have posted conversation comment")
+	}
+}
+
+func TestConversationModeEscape(t *testing.T) {
+	app := newProviderApp(t)
+	app.postConversationComment()
+	app = sendKeys(app, keyPress('h'), keyPress('i'))
+	app = sendKeys(app, keySpecial(tea.KeyEscape))
+	if app.inputMode != modeNormal {
+		t.Fatal("escape should return to normal mode")
+	}
+	if app.convBuffer != "" {
+		t.Error("buffer should be cleared on escape")
+	}
+}
+
+func TestConversationModeBackspace(t *testing.T) {
+	app := newProviderApp(t)
+	app.postConversationComment()
+	app = sendKeys(app, keyPress('a'), keyPress('b'))
+	app = sendKeys(app, keySpecial(tea.KeyBackspace))
+	if app.convBuffer != "a" {
+		t.Fatalf("expected 'a', got %q", app.convBuffer)
+	}
+}
+
+func TestConversationModeNewline(t *testing.T) {
+	app := newProviderApp(t)
+	app.postConversationComment()
+	app = sendKeys(app, keyPress('a'))
+	app = sendKeys(app, keyMod(tea.KeyEnter, tea.ModShift))
+	app = sendKeys(app, keyPress('b'))
+	if app.convBuffer != "a\nb" {
+		t.Fatalf("expected 'a\\nb', got %q", app.convBuffer)
+	}
+}
+
+// --- Context expansion with VCS mock ---
+
+func TestExpandGap(t *testing.T) {
+	app := newVCSApp(t)
+	// Find the expander annotation
+	expanderIdx := -1
+	for i, ann := range app.annotations {
+		if ann.Type == annExpander {
+			expanderIdx = i
+			break
+		}
+	}
+	if expanderIdx < 0 {
+		t.Fatal("should have an expander annotation between two hunks")
+	}
+
+	// Move cursor to expander and toggle
+	app.cursorLine = expanderIdx
+	app.toggleExpandAtCursor()
+
+	// Should have expanded
+	if len(app.expandedGaps) == 0 {
+		t.Fatal("gap should be expanded")
+	}
+
+	// Verify FetchContextLines was called
+	mockVCS := app.vcs.(*testutil.MockVCS)
+	if len(mockVCS.FetchContextCalls) != 1 {
+		t.Fatalf("expected 1 FetchContextLines call, got %d", len(mockVCS.FetchContextCalls))
+	}
+	call := mockVCS.FetchContextCalls[0]
+	if call.FilePath != "gap.go" {
+		t.Errorf("expected file gap.go, got %s", call.FilePath)
+	}
+}
+
+func TestExpandGapNoVCS(t *testing.T) {
+	app := newTwoFileApp(t)
+	// Find expander
+	for i, ann := range app.annotations {
+		if ann.Type == annExpander {
+			app.cursorLine = i
+			app.toggleExpandAtCursor()
+			break
+		}
+	}
+	if app.message == nil || !strings.Contains(app.message.text, "VCS backend") {
+		t.Error("should warn about missing VCS")
+	}
+}
+
+func TestCollapseGap(t *testing.T) {
+	app := newVCSApp(t)
+	// Find and expand
+	for i, ann := range app.annotations {
+		if ann.Type == annExpander {
+			app.cursorLine = i
+			app.toggleExpandAtCursor()
+			break
+		}
+	}
+	if len(app.expandedGaps) == 0 {
+		t.Fatal("should be expanded")
+	}
+
+	// Find expanded context line and collapse
+	for i, ann := range app.annotations {
+		if ann.Type == annExpandedContext {
+			app.cursorLine = i
+			app.toggleExpandAtCursor()
+			break
+		}
+	}
+	if len(app.expandedGaps) != 0 {
+		t.Fatal("should be collapsed")
+	}
+}
+
+// --- Commit list cursor navigation keys ---
+
+func TestCommitListCursorNavigation(t *testing.T) {
+	app := newTestApp(t)
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1", Summary: "C1"},
+		{ID: "c2", ShortID: "c2", Summary: "C2"},
+		{ID: "c3", ShortID: "c3", Summary: "C3"},
+	}
+	diffs := map[string][]model.DiffFile{
+		"c1": app.diffFiles,
+		"c2": app.diffFiles,
+		"c3": app.diffFiles,
+	}
+	app.SetCommits(commits, diffs)
+	app.focusedPanel = panelCommitList
+
+	// j moves down
+	app = sendKeys(app, keyPress('j'))
+	if app.commitCursor != 1 {
+		t.Fatalf("expected commit cursor 1, got %d", app.commitCursor)
+	}
+	// k moves up
+	app = sendKeys(app, keyPress('k'))
+	if app.commitCursor != 0 {
+		t.Fatalf("expected commit cursor 0, got %d", app.commitCursor)
+	}
+}
+
+// --- Reply to comment ---
+
+func TestReplyToCommentNoComment(t *testing.T) {
+	app := newTestApp(t)
+	// Move to a diff line (not a comment)
+	app.cursorLine = 1
+	app.replyToCommentAtCursor()
+	if app.message == nil || !strings.Contains(app.message.text, "comment to reply") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected reply warning, got %q", msg)
+	}
+}
+
+func TestReplyToLocalComment(t *testing.T) {
+	app := newTestApp(t)
+	// Add a local comment (no ExternalID)
+	path := app.diffFiles[0].DisplayPath()
+	fr := app.session.GetOrCreateFileReview(path, model.FileModified)
+	c := model.NewComment("local comment", model.CommentNote, model.SideNew)
+	fr.AddLineComment(2, c)
+	app.rebuildAnnotations()
+
+	// Find the comment annotation
+	for i, ann := range app.annotations {
+		if ann.Type == annLineComment {
+			app.cursorLine = i
+			break
+		}
+	}
+	app.replyToCommentAtCursor()
+	if app.message == nil || !strings.Contains(app.message.text, "remote comments") {
+		var msg string
+		if app.message != nil {
+			msg = app.message.text
+		}
+		t.Errorf("expected remote-only warning, got %q", msg)
+	}
+}
+
+// --- SetProvider ---
+
+func TestSetProvider(t *testing.T) {
+	app := newTestApp(t)
+	m := mock.New()
+	app.SetProvider(m, "42")
+	if app.provider == nil {
+		t.Fatal("provider should be set")
+	}
+	if app.providerID != "42" {
+		t.Fatalf("providerID = %q, want '42'", app.providerID)
+	}
+}
+
+// --- View with commit list panel ---
+
+func TestViewWithCommitListPanel(t *testing.T) {
+	app := newTestApp(t)
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1", Summary: "My commit", Author: "me", Time: time.Now()},
+	}
+	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
+	app.SetCommits(commits, diffs)
+
+	view := app.View()
+	if !strings.Contains(view.Content, "My commit") {
+		t.Error("view should include commit list")
+	}
+}
+
+// --- renderExpandedContextLine ---
+
+func TestRenderExpandedContextLine(t *testing.T) {
+	app := newVCSApp(t)
+	// Expand a gap first
+	for i, ann := range app.annotations {
+		if ann.Type == annExpander {
+			app.cursorLine = i
+			app.toggleExpandAtCursor()
+			break
+		}
+	}
+
+	// Find and render an expanded context line
+	for _, ann := range app.annotations {
+		if ann.Type == annExpandedContext {
+			result := app.renderExpandedContextLine(ann, 120, false)
+			if result == "" {
+				t.Error("expanded context should render non-empty")
+			}
+			if !strings.Contains(result, "expanded line") {
+				t.Error("should contain the expanded line content")
+			}
+
+			// Also test with cursor
+			cursorResult := app.renderExpandedContextLine(ann, 120, true)
+			if cursorResult == "" {
+				t.Error("cursor expanded context should render")
+			}
+			return
+		}
+	}
+	t.Fatal("should have found expanded context annotation")
+}
+
+// --- buildDefaultDescription ---
+
+func TestBuildDefaultDescription(t *testing.T) {
+	app := newPickerApp(t)
+	commits := []vcs.CommitInfo{
+		{ID: "c1", Summary: "First", Body: "detail line"},
+		{ID: "c2", Summary: "Second"},
+	}
+	desc := app.buildDefaultDescription(commits, true)
+	if !strings.Contains(desc, "Working tree") {
+		t.Error("should include working tree")
+	}
+	if !strings.Contains(desc, "First") || !strings.Contains(desc, "Second") {
+		t.Error("should include commit summaries")
+	}
+	if !strings.Contains(desc, "detail line") {
+		t.Error("should include commit body")
+	}
+}
+
+// --- relativeTime ---
+
+func TestRelativeTime(t *testing.T) {
+	tests := []struct {
+		d    time.Duration
+		want string
+	}{
+		{30 * time.Second, "just now"},
+		{5 * time.Minute, "5 minutes ago"},
+		{1 * time.Minute, "1 minute ago"},
+		{3 * time.Hour, "3 hours ago"},
+		{1 * time.Hour, "1 hour ago"},
+		{2 * 24 * time.Hour, "2 days ago"},
+		{1 * 24 * time.Hour, "1 day ago"},
+		{60 * 24 * time.Hour, ""},
+	}
+	for _, tc := range tests {
+		result := relativeTime(time.Now().Add(-tc.d))
+		if tc.want == "" {
+			// Should be a date format
+			if strings.Contains(result, "ago") {
+				t.Errorf("relativeTime(%v) = %q, expected date format", tc.d, result)
+			}
+		} else if result != tc.want {
+			t.Errorf("relativeTime(%v) = %q, want %q", tc.d, result, tc.want)
+		}
+	}
+
+	if result := relativeTime(time.Time{}); result != "" {
+		t.Errorf("relativeTime(zero) = %q, want empty", result)
 	}
 }
