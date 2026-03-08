@@ -565,22 +565,67 @@ func (a *App) isVisualSelected(idx int) bool {
 		return false
 	}
 
-	lineNo := ann.NewLineNo
-	if lineNo == 0 {
-		lineNo = ann.OldLineNo
-	}
-
 	cursorAnn := a.annotations[a.cursorLine]
-	cursorLineNo := cursorAnn.NewLineNo
-	if cursorLineNo == 0 {
-		cursorLineNo = cursorAnn.OldLineNo
+
+	// Determine cursor side: old-only (deletion) vs new (addition or context).
+	cursorSide := model.SideNew
+	if cursorAnn.NewLineNo == 0 {
+		cursorSide = model.SideOld
 	}
 
-	lo, hi := a.visualAnchor, cursorLineNo
+	anchorSide := a.visualAnchorSide
+
+	if anchorSide == model.SideOld && cursorSide == model.SideOld {
+		// Both endpoints are old-side: only select lines that have OldLineNo.
+		if ann.OldLineNo == 0 {
+			return false
+		}
+		lo, hi := a.visualAnchor, cursorAnn.OldLineNo
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		return ann.OldLineNo >= lo && ann.OldLineNo <= hi
+	}
+
+	if anchorSide == model.SideNew && cursorSide == model.SideNew {
+		// Both endpoints are new-side: only select lines that have NewLineNo.
+		if ann.NewLineNo == 0 {
+			return false
+		}
+		lo, hi := a.visualAnchor, cursorAnn.NewLineNo
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		return ann.NewLineNo >= lo && ann.NewLineNo <= hi
+	}
+
+	// Mixed selection (one old, one new): select all diff lines between
+	// the anchor and cursor screen positions.
+	anchorIdx := a.visualAnchorIdx()
+	if anchorIdx < 0 {
+		return false
+	}
+	lo, hi := anchorIdx, a.cursorLine
 	if lo > hi {
 		lo, hi = hi, lo
 	}
-	return lineNo >= lo && lineNo <= hi
+	return idx >= lo && idx <= hi
+}
+
+// visualAnchorIdx finds the current annotation index for the visual anchor.
+func (a *App) visualAnchorIdx() int {
+	for i, ann := range a.annotations {
+		if ann.Type != annDiffLine {
+			continue
+		}
+		if a.visualAnchorSide == model.SideOld && ann.OldLineNo == a.visualAnchor {
+			return i
+		}
+		if a.visualAnchorSide == model.SideNew && ann.NewLineNo == a.visualAnchor {
+			return i
+		}
+	}
+	return -1
 }
 
 func (a *App) renderAnnotatedLine(ann annotatedLine, width int, isCursor, isVisualSelected bool) string {

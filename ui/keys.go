@@ -29,6 +29,27 @@ func handleTextInput(key tea.Key, buffer *string, cursor *int) bool {
 			*cursor--
 		}
 		return true
+	case key.Code == tea.KeyDelete:
+		if *cursor < len(*buffer) {
+			*buffer = (*buffer)[:*cursor] + (*buffer)[*cursor+1:]
+		}
+		return true
+	case key.Code == tea.KeyLeft:
+		if *cursor > 0 {
+			*cursor--
+		}
+		return true
+	case key.Code == tea.KeyRight:
+		if *cursor < len(*buffer) {
+			*cursor++
+		}
+		return true
+	case key.Code == tea.KeyHome, key.Code == 'a' && key.Mod == tea.ModCtrl:
+		*cursor = 0
+		return true
+	case key.Code == tea.KeyEnd, key.Code == 'e' && key.Mod == tea.ModCtrl:
+		*cursor = len(*buffer)
+		return true
 	default:
 		if key.Text != "" {
 			*buffer = (*buffer)[:*cursor] + key.Text + (*buffer)[*cursor:]
