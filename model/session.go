@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // FileReview tracks review status and comments for a single file.
 type FileReview struct {
@@ -141,7 +145,7 @@ func NewSession(repoPath, branchName, baseCommit string, source DiffSource) *Rev
 }
 
 func generateSessionID() string {
-	return time.Now().Format("20060102_150405")
+	return uuid.New().String()
 }
 
 // GetOrCreateFileReview gets or creates a FileReview for the given path.

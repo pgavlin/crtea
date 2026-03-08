@@ -40,4 +40,7 @@ type Provider interface {
 
 	// Refresh re-fetches remote state and returns what changed.
 	Refresh(id string) (*RefreshResult, error)
+
+	// Seed records initial state so the first Refresh only reports new items.
+	Seed(rr *ReviewRequest, comments []Comment, reviews []Review, conv []ConversationComment)
 }

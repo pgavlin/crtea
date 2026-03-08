@@ -15,6 +15,30 @@ import (
 	"github.com/pgavlin/crtea/vcs"
 )
 
+// handleTextInput handles common text editing keys (backspace, shift-enter newline,
+// character insertion) for any buffer/cursor pair. Returns true if the key was consumed.
+func handleTextInput(key tea.Key, buffer *string, cursor *int) bool {
+	switch {
+	case key.Code == tea.KeyEnter && key.Mod == tea.ModShift:
+		*buffer = (*buffer)[:*cursor] + "\n" + (*buffer)[*cursor:]
+		*cursor++
+		return true
+	case key.Code == tea.KeyBackspace:
+		if *cursor > 0 {
+			*buffer = (*buffer)[:*cursor-1] + (*buffer)[*cursor:]
+			*cursor--
+		}
+		return true
+	default:
+		if key.Text != "" {
+			*buffer = (*buffer)[:*cursor] + key.Text + (*buffer)[*cursor:]
+			*cursor += len(key.Text)
+			return true
+		}
+	}
+	return false
+}
+
 func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Clear non-error messages on any keypress; errors persist until Escape
 	if a.message != nil && a.message.level != messageError {
@@ -385,25 +409,13 @@ func (a App) handleCommentKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.commentBuffer = ""
 		a.editingID = ""
 		a.commentLineRange = nil
-	case key.Code == tea.KeyEnter && key.Mod == tea.ModShift:
-		// Shift-Enter: newline in comment
-		a.commentBuffer = a.commentBuffer[:a.commentCursor] + "\n" + a.commentBuffer[a.commentCursor:]
-		a.commentCursor++
-	case key.Code == tea.KeyEnter:
+	case key.Code == tea.KeyEnter && key.Mod == 0:
 		a.saveComment()
 		a.inputMode = modeNormal
 	case key.Code == tea.KeyTab:
 		a.commentType = a.commentType.Next()
-	case key.Code == tea.KeyBackspace:
-		if a.commentCursor > 0 {
-			a.commentBuffer = a.commentBuffer[:a.commentCursor-1] + a.commentBuffer[a.commentCursor:]
-			a.commentCursor--
-		}
 	default:
-		if key.Text != "" {
-			a.commentBuffer = a.commentBuffer[:a.commentCursor] + key.Text + a.commentBuffer[a.commentCursor:]
-			a.commentCursor += len(key.Text)
-		}
+		handleTextInput(key, &a.commentBuffer, &a.commentCursor)
 	}
 	return &a, nil
 }
@@ -454,6 +466,7 @@ func (a *App) cursorDown(n int) {
 		if a.fileListCursor < 0 {
 			a.fileListCursor = 0
 		}
+		a.ensureFileListCursorVisible()
 		return
 	}
 	if a.focusedPanel == panelConversation {
@@ -502,6 +515,7 @@ func (a *App) cursorUp(n int) {
 		if a.fileListCursor < 0 {
 			a.fileListCursor = 0
 		}
+		a.ensureFileListCursorVisible()
 		return
 	}
 	if a.focusedPanel == panelConversation {
@@ -533,6 +547,25 @@ func (a *App) cursorUp(n int) {
 	a.ensureCursorVisible()
 }
 
+func (a *App) fileListVisibleRows(height int) int {
+	// header takes 1 line
+	vis := height - 1
+	if vis < 1 {
+		vis = 1
+	}
+	return vis
+}
+
+func (a *App) ensureFileListCursorVisible() {
+	vis := a.fileListVisibleRows(a.diffViewportHeight())
+	if a.fileListCursor < a.fileListScroll {
+		a.fileListScroll = a.fileListCursor
+	}
+	if a.fileListCursor >= a.fileListScroll+vis {
+		a.fileListScroll = a.fileListCursor - vis + 1
+	}
+}
+
 func (a *App) ensureCursorVisible() {
 	vpHeight := a.diffViewportHeight()
 	if a.cursorLine < a.scrollOffset {
@@ -552,11 +585,23 @@ func (a *App) centerCursor() {
 }
 
 func (a *App) jumpToStart() {
+	if a.focusedPanel == panelFileList {
+		a.fileListCursor = 0
+		a.fileListScroll = 0
+		return
+	}
 	a.cursorLine = 0
 	a.scrollOffset = 0
 }
 
 func (a *App) jumpToEnd() {
+	if a.focusedPanel == panelFileList {
+		if len(a.fileTreeRows) > 0 {
+			a.fileListCursor = len(a.fileTreeRows) - 1
+			a.ensureFileListCursorVisible()
+		}
+		return
+	}
 	if len(a.annotations) > 0 {
 		a.cursorLine = len(a.annotations) - 1
 		a.ensureCursorVisible()
@@ -788,7 +833,7 @@ func (a *App) toggleReviewed() {
 	}
 	fr := a.session.GetOrCreateFileReview(path, a.diffFiles[fileIdx].Status)
 	fr.Reviewed = !fr.Reviewed
-	a.dirty = true
+	a.markDirty()
 	if fr.Reviewed {
 		a.setMessage(fmt.Sprintf("Marked %s as reviewed", path), messageInfo)
 	} else {
@@ -1039,7 +1084,7 @@ func (a *App) saveComment() {
 		}
 	}
 
-	a.dirty = true
+	a.markDirty()
 	a.commentBuffer = ""
 	a.editingID = ""
 	a.replyToID = ""
@@ -1070,7 +1115,7 @@ func (a *App) deleteCommentAtCursor() {
 				return
 			}
 			fr.FileComments = append(fr.FileComments[:ann.CommentIdx], fr.FileComments[ann.CommentIdx+1:]...)
-			a.dirty = true
+			a.markDirty()
 			a.rebuildAnnotations()
 			a.setMessage("Comment deleted", messageInfo)
 		}
@@ -1086,7 +1131,7 @@ func (a *App) deleteCommentAtCursor() {
 			if len(fr.LineComments[lineNo]) == 0 {
 				delete(fr.LineComments, lineNo)
 			}
-			a.dirty = true
+			a.markDirty()
 			a.rebuildAnnotations()
 			a.setMessage("Comment deleted", messageInfo)
 		}
@@ -1168,24 +1213,13 @@ func (a App) handleReviewKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Code == tea.KeyEscape:
 		a.inputMode = modeNormal
 		a.reviewBuffer = ""
-	case key.Code == tea.KeyEnter && key.Mod == tea.ModShift:
-		a.reviewBuffer = a.reviewBuffer[:a.reviewCursor] + "\n" + a.reviewBuffer[a.reviewCursor:]
-		a.reviewCursor++
-	case key.Code == tea.KeyEnter:
+	case key.Code == tea.KeyEnter && key.Mod == 0:
 		a.saveOverallReview()
 		a.inputMode = modeNormal
 	case key.Code == tea.KeyTab:
 		a.reviewStatus = a.reviewStatus.Next()
-	case key.Code == tea.KeyBackspace:
-		if a.reviewCursor > 0 {
-			a.reviewBuffer = a.reviewBuffer[:a.reviewCursor-1] + a.reviewBuffer[a.reviewCursor:]
-			a.reviewCursor--
-		}
 	default:
-		if key.Text != "" {
-			a.reviewBuffer = a.reviewBuffer[:a.reviewCursor] + key.Text + a.reviewBuffer[a.reviewCursor:]
-			a.reviewCursor += len(key.Text)
-		}
+		handleTextInput(key, &a.reviewBuffer, &a.reviewCursor)
 	}
 	return &a, nil
 }
@@ -1209,7 +1243,7 @@ func (a *App) saveConversationComment() {
 		CreatedAt: time.Now(),
 	}
 	a.session.Conversation = append(a.session.Conversation, cc)
-	a.dirty = true
+	a.markDirty()
 	a.setMessage("Comment posted", messageInfo)
 }
 
@@ -1224,7 +1258,7 @@ func (a *App) saveOverallReview() {
 			Status: a.reviewStatus,
 		}
 	}
-	a.dirty = true
+	a.markDirty()
 	a.reviewBuffer = ""
 	a.setMessage("Overall review saved", messageInfo)
 }
@@ -1243,21 +1277,10 @@ func (a App) handleBugKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Code == tea.KeyEscape:
 		a.inputMode = modeNormal
 		a.bugBuffer = ""
-	case key.Code == tea.KeyEnter && key.Mod == tea.ModShift:
-		a.bugBuffer = a.bugBuffer[:a.bugCursor] + "\n" + a.bugBuffer[a.bugCursor:]
-		a.bugCursor++
-	case key.Code == tea.KeyEnter:
+	case key.Code == tea.KeyEnter && key.Mod == 0:
 		return a.submitBugReport()
-	case key.Code == tea.KeyBackspace:
-		if a.bugCursor > 0 {
-			a.bugBuffer = a.bugBuffer[:a.bugCursor-1] + a.bugBuffer[a.bugCursor:]
-			a.bugCursor--
-		}
 	default:
-		if key.Text != "" {
-			a.bugBuffer = a.bugBuffer[:a.bugCursor] + key.Text + a.bugBuffer[a.bugCursor:]
-			a.bugCursor += len(key.Text)
-		}
+		handleTextInput(key, &a.bugBuffer, &a.bugCursor)
 	}
 	return &a, nil
 }
@@ -1269,22 +1292,11 @@ func (a App) handleConversationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.inputMode = modeNormal
 		a.convBuffer = ""
 		a.convCursor = 0
-	case key.Code == tea.KeyEnter && key.Mod == tea.ModShift:
-		a.convBuffer = a.convBuffer[:a.convCursor] + "\n" + a.convBuffer[a.convCursor:]
-		a.convCursor++
-	case key.Code == tea.KeyEnter:
+	case key.Code == tea.KeyEnter && key.Mod == 0:
 		a.saveConversationComment()
 		a.inputMode = modeNormal
-	case key.Code == tea.KeyBackspace:
-		if a.convCursor > 0 {
-			a.convBuffer = a.convBuffer[:a.convCursor-1] + a.convBuffer[a.convCursor:]
-			a.convCursor--
-		}
 	default:
-		if key.Text != "" {
-			a.convBuffer = a.convBuffer[:a.convCursor] + key.Text + a.convBuffer[a.convCursor:]
-			a.convCursor += len(key.Text)
-		}
+		handleTextInput(key, &a.convBuffer, &a.convCursor)
 	}
 	return &a, nil
 }
@@ -1514,7 +1526,7 @@ func (a *App) executeCommand(cmd string) tea.Cmd {
 				a.session.OverallReview = nil
 				cleared++
 			}
-			a.dirty = true
+			a.markDirty()
 			a.rebuildAnnotations()
 			a.setMessage(fmt.Sprintf("Cleared %d draft comment(s)", cleared), messageInfo)
 			return nil
@@ -1580,14 +1592,26 @@ func (a *App) submitToProvider() tea.Cmd {
 			return nil
 		}
 
-		// Mark comments as submitted
+		// Mark only the exported comments as submitted
+		exported := make(map[string]bool, len(drafts))
+		for _, d := range drafts {
+			// Key by path+line+side+body to match exactly what was exported
+			exported[d.Path+"\x00"+strconv.Itoa(d.Line)+"\x00"+d.Side+"\x00"+d.Body] = true
+		}
 		for _, fr := range a.session.Files {
 			for line, comments := range fr.LineComments {
 				for i := range comments {
-					if comments[i].Author == "" || comments[i].Author == a.session.Reviewer {
-						if comments[i].ExternalID == "" {
-							comments[i].Submitted = true
-						}
+					c := &comments[i]
+					if c.Submitted || c.ExternalID != "" {
+						continue
+					}
+					side := "new"
+					if c.Side == model.SideOld {
+						side = "old"
+					}
+					key := fr.Path + "\x00" + strconv.Itoa(line) + "\x00" + side + "\x00" + c.Content
+					if exported[key] {
+						c.Submitted = true
 					}
 				}
 				fr.LineComments[line] = comments
@@ -1655,7 +1679,9 @@ func (a *App) refreshFromProvider() tea.Cmd {
 	}
 
 	a.rebuildAnnotations()
-	a.store.Save(a.session)
+	if _, err := a.store.Save(a.session); err == nil {
+		a.dirty = false
+	}
 	a.setMessage(fmt.Sprintf("Refreshed: %d new items", newCount), messageInfo)
 	return nil
 }

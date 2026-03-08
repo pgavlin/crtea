@@ -218,18 +218,6 @@ func (g *GitHub) SubmitReview(id string, review provider.SubmitReviewRequest) er
 		return err
 	}
 
-	_, err = ghAPI(g.apiPath("/pulls/%s/reviews", id),
-		"--method", "POST",
-		"--input", "-",
-		"--raw-field", string(payload))
-	if err != nil {
-		// Try alternate approach: pass via stdin
-		return g.submitReviewViaStdin(id, payload)
-	}
-	return nil
-}
-
-func (g *GitHub) submitReviewViaStdin(id string, payload []byte) error {
 	cmd := exec.Command("gh", "api", g.apiPath("/pulls/%s/reviews", id),
 		"--method", "POST", "--input", "-")
 	cmd.Stdin = strings.NewReader(string(payload))

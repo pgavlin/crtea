@@ -11,6 +11,21 @@ import (
 	"github.com/pgavlin/crtea/model"
 )
 
+// fileStatusColor returns the theme color for a file status.
+func (a *App) fileStatusColor(status model.FileStatus) color.Color {
+	th := a.theme
+	switch status {
+	case model.FileAdded:
+		return th.FileAdded
+	case model.FileDeleted:
+		return th.FileDeleted
+	case model.FileRenamed:
+		return th.FileRenamed
+	default:
+		return th.FileModified
+	}
+}
+
 // Rendering styles - these are created from the theme at render time
 
 func (a *App) renderCommitList(width, height int) string {
@@ -38,57 +53,8 @@ func (a *App) renderCommitList(width, height int) string {
 		item := items[i]
 		isCursor := i == a.commitCursor && isFocused
 		isEnabled := a.enabledCommits[item.key]
-
-		cursor := "  "
-		if isCursor {
-			cursor = "> "
-		}
-
-		check := "○"
-		if isEnabled {
-			check = "●"
-		}
-
-		cursorStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(isCursor)
-		checkStyle := lipgloss.NewStyle().Foreground(th.CommentNote)
-		if isEnabled {
-			checkStyle = checkStyle.Bold(true)
-		}
-
-		var line string
-		if item.isWorkingTree {
-			labelStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
-			if isCursor {
-				labelStyle = labelStyle.Background(th.BgHighlight)
-			}
-			line = cursorStyle.Render(cursor) + checkStyle.Render(check) + " " + labelStyle.Render("Working tree changes")
-		} else {
-			c := item.commit
-			hashStyle := lipgloss.NewStyle().Foreground(th.FileModified)
-			summaryStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
-			metaStyle := lipgloss.NewStyle().Foreground(th.FgDim)
-			if isCursor {
-				hashStyle = hashStyle.Background(th.BgHighlight)
-				summaryStyle = summaryStyle.Background(th.BgHighlight)
-				metaStyle = metaStyle.Background(th.BgHighlight)
-			}
-
-			summary := c.Summary
-			maxSummary := width - 40
-			if maxSummary < 20 {
-				maxSummary = 20
-			}
-			if lipgloss.Width(summary) > maxSummary {
-				summary = ansi.Truncate(summary, maxSummary-1, "") + "…"
-			}
-
-			line = cursorStyle.Render(cursor) +
-				checkStyle.Render(check) + " " +
-				hashStyle.Render(c.ShortID) + " " +
-				summaryStyle.Render(summary) +
-				metaStyle.Render("  "+c.Author+", "+relativeTime(c.Time))
-		}
-		lines = append(lines, truncateOrPad(line, width))
+		row := a.renderCommitRow(item.isWorkingTree, item.commit, isCursor, isEnabled, width)
+		lines = append(lines, truncateOrPad(row, width))
 	}
 
 	// Pad to fill visible area
@@ -257,58 +223,9 @@ func (a *App) renderConversation(width, height int, isFocused bool) string {
 
 func (a *App) renderConversationEditor(width, height int) []string {
 	th := a.theme
-	borderColor := th.BorderFocused
-	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
-
-	innerWidth := width - 4 // "│ " + content + " │"
-	if innerWidth < 10 {
-		innerWidth = 10
-	}
-
-	// Top border with label
-	labelStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true)
-	label := labelStyle.Render(" New message ")
-	labelW := lipgloss.Width(label)
-	restWidth := width - 2 - labelW
-	if restWidth < 1 {
-		restWidth = 1
-	}
-
-	var lines []string
-	lines = append(lines, borderStyle.Render("╭")+label+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
-
-	// Content with cursor
-	buf := a.convBuffer
-	cursor := a.convCursor
-	before := buf[:cursor]
-	after := buf[cursor:]
-	display := before + "█" + after
-
-	wrapWidth := innerWidth
-	if wrapWidth < 10 {
-		wrapWidth = 0
-	}
-	wrapped := wrapComment(display, wrapWidth)
-	if len(wrapped) == 0 {
-		wrapped = []string{"█"}
-	}
-
-	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
-	maxContentLines := height - 2 // top + bottom border
-	for i, wl := range wrapped {
-		if i >= maxContentLines {
-			break
-		}
-		inner := truncateOrPad(wl, innerWidth)
-		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(inner)+" "+borderStyle.Render("│"))
-	}
-
-	for len(lines) < height-1 {
-		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(strings.Repeat(" ", innerWidth))+" "+borderStyle.Render("│"))
-	}
-
-	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", width-2)+"╯"))
-	return lines
+	label := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true).Render(" New message ")
+	rendered := a.renderEditorBoxFull(width, height, th.BorderFocused, a.convBuffer, a.convCursor, label)
+	return strings.Split(rendered, "\n")
 }
 
 func (a *App) renderStatusBar() string {
@@ -468,7 +385,14 @@ func (a *App) renderFileList(width, height int) string {
 	var lines []string
 	lines = append(lines, headerStyle.Render(truncateOrPad("Files", width-2)))
 
-	for i, row := range a.fileTreeRows {
+	visibleRows := height - 1 // header takes 1 line
+	scrollEnd := a.fileListScroll + visibleRows
+	if scrollEnd > len(a.fileTreeRows) {
+		scrollEnd = len(a.fileTreeRows)
+	}
+
+	for i := a.fileListScroll; i < scrollEnd; i++ {
+		row := a.fileTreeRows[i]
 		node := row.Node
 		isSelected := i == a.fileListCursor && a.focusedPanel == panelFileList
 
@@ -513,17 +437,7 @@ func (a *App) renderFileList(width, height int) string {
 			file := a.diffFiles[fileIdx]
 			path := file.DisplayPath()
 
-			statusColor := th.FileModified
-			switch file.Status {
-			case model.FileAdded:
-				statusColor = th.FileAdded
-			case model.FileDeleted:
-				statusColor = th.FileDeleted
-			case model.FileRenamed:
-				statusColor = th.FileRenamed
-			}
-
-			statusStyle := bg(lipgloss.NewStyle().Foreground(statusColor))
+			statusStyle := bg(lipgloss.NewStyle().Foreground(a.fileStatusColor(file.Status)))
 
 			marker := bg(lipgloss.NewStyle()).Render(" ")
 			if fr := a.session.GetFileReview(path); fr != nil && fr.Reviewed {
@@ -738,15 +652,7 @@ func (a *App) renderFileHeader(ann annotatedLine, width int, isCursor bool) stri
 	file := a.diffFiles[ann.FileIdx]
 	path := file.DisplayPath()
 
-	statusColor := th.FileModified
-	switch file.Status {
-	case model.FileAdded:
-		statusColor = th.FileAdded
-	case model.FileDeleted:
-		statusColor = th.FileDeleted
-	case model.FileRenamed:
-		statusColor = th.FileRenamed
-	}
+	statusColor := a.fileStatusColor(file.Status)
 
 	// Review indicator
 	reviewMark := ""
@@ -854,153 +760,146 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 	searchPattern := strings.ToLower(a.searchHighlight)
 
 	if line.Spans != nil {
-		// Render with syntax highlighting
-		var rendered strings.Builder
-		col := 0     // visual columns emitted so far
-		skipped := 0 // visual columns skipped for horizontal scroll
-
-		// Collect visible text for search highlighting
-		type spanSegment struct {
-			text  string
-			fg    color.Color
-			start int // column offset
-		}
-		var segments []spanSegment
-
-		for _, span := range line.Spans {
-			if col >= contentWidth {
-				break
-			}
-			text := expandTabs(span.Text)
-			textWidth := lipgloss.Width(text)
-
-			// Skip spans before the horizontal scroll offset
-			if a.scrollX > 0 && skipped < a.scrollX {
-				if skipped+textWidth <= a.scrollX {
-					skipped += textWidth
-					continue
-				}
-				// Partially visible span: trim the leading portion
-				trimCols := a.scrollX - skipped
-				prefix := ansi.Truncate(text, trimCols, "")
-				text = text[len(prefix):]
-				textWidth = lipgloss.Width(text)
-				skipped = a.scrollX
-			}
-
-			remaining := contentWidth - col
-			if textWidth > remaining {
-				text = ansi.Truncate(text, remaining, "")
-				textWidth = lipgloss.Width(text)
-			}
-
-			var fg color.Color
-			if span.FG != "" {
-				fg = lipgloss.Color(span.FG)
-			} else {
-				fg = contentStyle.GetForeground()
-			}
-			segments = append(segments, spanSegment{text: text, fg: fg, start: col})
-			col += textWidth
-		}
-
-		// If we have a search pattern, find matches in the concatenated visible text
-		var matchRanges [][2]int
-		if searchPattern != "" {
-			var fullText strings.Builder
-			for _, seg := range segments {
-				fullText.WriteString(seg.text)
-			}
-			ft := fullText.String()
-			ftLower := strings.ToLower(ft)
-			patLen := len(searchPattern)
-			for idx := 0; idx < len(ftLower); {
-				pos := strings.Index(ftLower[idx:], searchPattern)
-				if pos < 0 {
-					break
-				}
-				matchRanges = append(matchRanges, [2]int{idx + pos, idx + pos + patLen})
-				idx += pos + patLen
-			}
-		}
-
-		if len(matchRanges) > 0 {
-			// Render segments with search highlighting
-			hlStyle := lipgloss.NewStyle().
-				Background(th.SearchMatch).
-				Foreground(th.SearchMatchFg)
-			charOffset := 0
-			matchIdx := 0
-			for _, seg := range segments {
-				segEnd := charOffset + len(seg.text)
-				pos := 0
-				for pos < len(seg.text) && matchIdx < len(matchRanges) {
-					mStart := matchRanges[matchIdx][0] - charOffset
-					mEnd := matchRanges[matchIdx][1] - charOffset
-					if mStart >= len(seg.text) {
-						break
-					}
-					if mEnd <= 0 {
-						matchIdx++
-						continue
-					}
-					if mStart < 0 {
-						mStart = 0
-					}
-					if mEnd > len(seg.text) {
-						mEnd = len(seg.text)
-					}
-					// Render before match
-					if mStart > pos {
-						beforeStyle := lipgloss.NewStyle().Foreground(seg.fg)
-						if bgColor != nil {
-							beforeStyle = beforeStyle.Background(bgColor)
-						}
-						rendered.WriteString(beforeStyle.Render(seg.text[pos:mStart]))
-					}
-					// Render match
-					rendered.WriteString(hlStyle.Render(seg.text[mStart:mEnd]))
-					pos = mEnd
-					if matchRanges[matchIdx][1] <= segEnd {
-						matchIdx++
-					} else {
-						break
-					}
-				}
-				// Render remainder
-				if pos < len(seg.text) {
-					remStyle := lipgloss.NewStyle().Foreground(seg.fg)
-					if bgColor != nil {
-						remStyle = remStyle.Background(bgColor)
-					}
-					rendered.WriteString(remStyle.Render(seg.text[pos:]))
-				}
-				charOffset = segEnd
-			}
-		} else {
-			// No search matches — render normally
-			for _, seg := range segments {
-				spanStyle := lipgloss.NewStyle().Foreground(seg.fg)
-				if bgColor != nil {
-					spanStyle = spanStyle.Background(bgColor)
-				}
-				rendered.WriteString(spanStyle.Render(seg.text))
-			}
-		}
-
-		// Pad remaining width
-		if col < contentWidth {
-			padStyle := lipgloss.NewStyle()
-			if bgColor != nil {
-				padStyle = padStyle.Background(bgColor)
-			}
-			rendered.WriteString(padStyle.Render(strings.Repeat(" ", contentWidth-col)))
-		}
-		return gutter + markerStyle.Render(marker) + rendered.String()
+		rendered := a.renderSyntaxContent(line.Spans, contentWidth, contentStyle, bgColor, searchPattern)
+		return gutter + markerStyle.Render(marker) + rendered
 	}
 
-	// Fallback: no syntax highlighting
-	content := expandTabs(line.Content)
+	rendered := a.renderPlainContent(line.Content, contentWidth, contentStyle, searchPattern)
+	return gutter + markerStyle.Render(marker) + rendered
+}
+
+// spanSegment represents a visible span of text with its foreground color and column position.
+type spanSegment struct {
+	text  string
+	fg    color.Color
+	start int
+}
+
+// renderSyntaxContent renders syntax-highlighted spans with horizontal scroll and search highlighting.
+func (a *App) renderSyntaxContent(spans []model.StyledSpan, contentWidth int, contentStyle lipgloss.Style, bgColor color.Color, searchPattern string) string {
+	th := a.theme
+	var segments []spanSegment
+	col := 0
+	skipped := 0
+
+	for _, span := range spans {
+		if col >= contentWidth {
+			break
+		}
+		text := expandTabs(span.Text)
+		textWidth := lipgloss.Width(text)
+
+		if a.scrollX > 0 && skipped < a.scrollX {
+			if skipped+textWidth <= a.scrollX {
+				skipped += textWidth
+				continue
+			}
+			trimCols := a.scrollX - skipped
+			prefix := ansi.Truncate(text, trimCols, "")
+			text = text[len(prefix):]
+			textWidth = lipgloss.Width(text)
+			skipped = a.scrollX
+		}
+
+		remaining := contentWidth - col
+		if textWidth > remaining {
+			text = ansi.Truncate(text, remaining, "")
+			textWidth = lipgloss.Width(text)
+		}
+
+		var fg color.Color
+		if span.FG != "" {
+			fg = lipgloss.Color(span.FG)
+		} else {
+			fg = contentStyle.GetForeground()
+		}
+		segments = append(segments, spanSegment{text: text, fg: fg, start: col})
+		col += textWidth
+	}
+
+	var matchRanges [][2]int
+	if searchPattern != "" {
+		var fullText strings.Builder
+		for _, seg := range segments {
+			fullText.WriteString(seg.text)
+		}
+		matchRanges = findMatchRanges(fullText.String(), searchPattern)
+	}
+
+	var rendered strings.Builder
+	if len(matchRanges) > 0 {
+		hlStyle := lipgloss.NewStyle().
+			Background(th.SearchMatch).
+			Foreground(th.SearchMatchFg)
+		charOffset := 0
+		matchIdx := 0
+		for _, seg := range segments {
+			segEnd := charOffset + len(seg.text)
+			pos := 0
+			for pos < len(seg.text) && matchIdx < len(matchRanges) {
+				mStart := matchRanges[matchIdx][0] - charOffset
+				mEnd := matchRanges[matchIdx][1] - charOffset
+				if mStart >= len(seg.text) {
+					break
+				}
+				if mEnd <= 0 {
+					matchIdx++
+					continue
+				}
+				if mStart < 0 {
+					mStart = 0
+				}
+				if mEnd > len(seg.text) {
+					mEnd = len(seg.text)
+				}
+				if mStart > pos {
+					beforeStyle := lipgloss.NewStyle().Foreground(seg.fg)
+					if bgColor != nil {
+						beforeStyle = beforeStyle.Background(bgColor)
+					}
+					rendered.WriteString(beforeStyle.Render(seg.text[pos:mStart]))
+				}
+				rendered.WriteString(hlStyle.Render(seg.text[mStart:mEnd]))
+				pos = mEnd
+				if matchRanges[matchIdx][1] <= segEnd {
+					matchIdx++
+				} else {
+					break
+				}
+			}
+			if pos < len(seg.text) {
+				remStyle := lipgloss.NewStyle().Foreground(seg.fg)
+				if bgColor != nil {
+					remStyle = remStyle.Background(bgColor)
+				}
+				rendered.WriteString(remStyle.Render(seg.text[pos:]))
+			}
+			charOffset = segEnd
+		}
+	} else {
+		for _, seg := range segments {
+			spanStyle := lipgloss.NewStyle().Foreground(seg.fg)
+			if bgColor != nil {
+				spanStyle = spanStyle.Background(bgColor)
+			}
+			rendered.WriteString(spanStyle.Render(seg.text))
+		}
+	}
+
+	if col < contentWidth {
+		padStyle := lipgloss.NewStyle()
+		if bgColor != nil {
+			padStyle = padStyle.Background(bgColor)
+		}
+		rendered.WriteString(padStyle.Render(strings.Repeat(" ", contentWidth-col)))
+	}
+	return rendered.String()
+}
+
+// renderPlainContent renders plain text content with horizontal scroll and search highlighting.
+func (a *App) renderPlainContent(rawContent string, contentWidth int, contentStyle lipgloss.Style, searchPattern string) string {
+	th := a.theme
+	content := expandTabs(rawContent)
 	if a.scrollX > 0 {
 		if lipgloss.Width(content) > a.scrollX {
 			prefix := ansi.Truncate(content, a.scrollX, "")
@@ -1011,19 +910,8 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 	}
 	padded := truncateOrPad(content, contentWidth)
 
-	// Apply search highlighting to fallback path
 	if searchPattern != "" {
-		lower := strings.ToLower(padded)
-		patLen := len(searchPattern)
-		var matchRanges [][2]int
-		for idx := 0; idx < len(lower); {
-			pos := strings.Index(lower[idx:], searchPattern)
-			if pos < 0 {
-				break
-			}
-			matchRanges = append(matchRanges, [2]int{idx + pos, idx + pos + patLen})
-			idx += pos + patLen
-		}
+		matchRanges := findMatchRanges(padded, searchPattern)
 		if len(matchRanges) > 0 {
 			hlStyle := lipgloss.NewStyle().
 				Background(th.SearchMatch).
@@ -1040,12 +928,11 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 			if pos < len(padded) {
 				rendered.WriteString(contentStyle.Render(padded[pos:]))
 			}
-			return gutter + markerStyle.Render(marker) + rendered.String()
+			return rendered.String()
 		}
 	}
 
-	renderedContent := contentStyle.Render(padded)
-	return gutter + markerStyle.Render(marker) + renderedContent
+	return contentStyle.Render(padded)
 }
 
 func (a *App) renderExpandedContextLine(ann annotatedLine, width int, isCursor bool) string {
@@ -1307,20 +1194,10 @@ func (a *App) renderCommentEditor(width int) []string {
 	return lines
 }
 
-func (a *App) renderReviewEditor(width, height int) string {
+// renderEditorBoxFull renders a bordered text editor box with header content, buffer, and cursor.
+func (a *App) renderEditorBoxFull(width, height int, borderColor color.Color, buf string, cursor int, headerParts ...string) string {
 	th := a.theme
-
-	var statusColor color.Color
-	switch a.reviewStatus {
-	case model.ApprovalApprove:
-		statusColor = th.Reviewed
-	case model.ApprovalRequestChanges:
-		statusColor = th.CommentIssue
-	default:
-		statusColor = th.FgDim
-	}
-
-	borderStyle := lipgloss.NewStyle().Foreground(statusColor)
+	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
 
 	boxWidth := width
 	innerWidth := boxWidth - 4 // "│ " + content + " │"
@@ -1328,31 +1205,18 @@ func (a *App) renderReviewEditor(width, height int) string {
 		innerWidth = 10
 	}
 
-	// Status badge
-	statusBadge := lipgloss.NewStyle().
-		Background(statusColor).
-		Foreground(th.ModeFg).
-		Bold(true).
-		Padding(0, 1).
-		Render(a.reviewStatus.String())
-
-	titleStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true)
-	title := titleStyle.Render(" Overall Review ")
-
-	// Top border
-	badgeWidth := lipgloss.Width(statusBadge)
-	titleWidth := lipgloss.Width(title)
-	restWidth := boxWidth - 2 - badgeWidth - titleWidth
+	// Top border with header parts
+	header := strings.Join(headerParts, "")
+	headerWidth := lipgloss.Width(header)
+	restWidth := boxWidth - 2 - headerWidth
 	if restWidth < 1 {
 		restWidth = 1
 	}
 
 	var lines []string
-	lines = append(lines, borderStyle.Render("╭")+statusBadge+title+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
+	lines = append(lines, borderStyle.Render("╭")+header+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
 
 	// Content lines with cursor
-	buf := a.reviewBuffer
-	cursor := a.reviewCursor
 	before := buf[:cursor]
 	after := buf[cursor:]
 	display := before + "█" + after
@@ -1387,66 +1251,35 @@ func (a *App) renderReviewEditor(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (a *App) renderBugEditor(width, height int) string {
+func (a *App) renderReviewEditor(width, height int) string {
 	th := a.theme
 
-	borderColor := th.CommentIssue // red for bugs
-	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
-
-	boxWidth := width
-	innerWidth := boxWidth - 4 // "│ " + content + " │"
-	if innerWidth < 10 {
-		innerWidth = 10
+	var statusColor color.Color
+	switch a.reviewStatus {
+	case model.ApprovalApprove:
+		statusColor = th.Reviewed
+	case model.ApprovalRequestChanges:
+		statusColor = th.CommentIssue
+	default:
+		statusColor = th.FgDim
 	}
 
-	titleStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true)
-	title := titleStyle.Render(" Bug Report ")
+	badge := lipgloss.NewStyle().
+		Background(statusColor).
+		Foreground(th.ModeFg).
+		Bold(true).
+		Padding(0, 1).
+		Render(a.reviewStatus.String())
 
-	// Top border
-	titleWidth := lipgloss.Width(title)
-	restWidth := boxWidth - 2 - titleWidth
-	if restWidth < 1 {
-		restWidth = 1
-	}
+	title := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true).Render(" Overall Review ")
 
-	var lines []string
-	lines = append(lines, borderStyle.Render("╭")+title+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
+	return a.renderEditorBoxFull(width, height, statusColor, a.reviewBuffer, a.reviewCursor, badge, title)
+}
 
-	// Content lines with cursor
-	buf := a.bugBuffer
-	cursor := a.bugCursor
-	before := buf[:cursor]
-	after := buf[cursor:]
-	display := before + "█" + after
-
-	wrapWidth := innerWidth
-	if wrapWidth < 10 {
-		wrapWidth = 0
-	}
-	wrapped := wrapComment(display, wrapWidth)
-	if len(wrapped) == 0 {
-		wrapped = []string{"█"}
-	}
-
-	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
-	maxContentLines := height - 2 // top + bottom border
-	for i, wl := range wrapped {
-		if i >= maxContentLines {
-			break
-		}
-		inner := truncateOrPad(wl, innerWidth)
-		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(inner)+" "+borderStyle.Render("│"))
-	}
-
-	// Pad to fill remaining height
-	for len(lines) < height-1 {
-		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(strings.Repeat(" ", innerWidth))+" "+borderStyle.Render("│"))
-	}
-
-	// Bottom border
-	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", boxWidth-2)+"╯"))
-
-	return strings.Join(lines, "\n")
+func (a *App) renderBugEditor(width, height int) string {
+	th := a.theme
+	title := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(true).Render(" Bug Report ")
+	return a.renderEditorBoxFull(width, height, th.CommentIssue, a.bugBuffer, a.bugCursor, title)
 }
 
 func (a *App) commentTypeColor(ct model.CommentType) color.Color {
@@ -1519,7 +1352,7 @@ func (a *App) renderHelp(height int) string {
 		"  :submit           Submit review to remote",
 		"  :refresh          Refresh from remote",
 		"  :comment          Post conversation comment",
-		"  :clear            Clear all comments",
+		"  :clear            Clear draft comments",
 		"",
 		"Search",
 		"  /pattern          Search forward",
@@ -1585,6 +1418,26 @@ func (a *App) renderHelp(height int) string {
 const tabWidth = 4
 
 // expandTabs replaces tab characters with spaces aligned to tabWidth stops.
+// findMatchRanges returns [start, end) byte ranges where pattern (already lowered)
+// occurs in strings.ToLower(text).
+func findMatchRanges(text, pattern string) [][2]int {
+	if pattern == "" {
+		return nil
+	}
+	lower := strings.ToLower(text)
+	patLen := len(pattern)
+	var ranges [][2]int
+	for idx := 0; idx < len(lower); {
+		pos := strings.Index(lower[idx:], pattern)
+		if pos < 0 {
+			break
+		}
+		ranges = append(ranges, [2]int{idx + pos, idx + pos + patLen})
+		idx += pos + patLen
+	}
+	return ranges
+}
+
 func expandTabs(s string) string {
 	if !strings.Contains(s, "\t") {
 		return s

@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/pgavlin/crtea/model"
 	"github.com/pgavlin/crtea/vcs"
 
@@ -180,62 +181,9 @@ func (a *App) renderPicker() string {
 
 	for i := scrollStart; i < scrollEnd; i++ {
 		item := a.pickerItems[i]
-		isCursor := i == a.pickerCursor
-		isSelected := a.pickerSelected[i]
-
-		cursor := "  "
-		if isCursor {
-			cursor = "> "
-		}
-
-		check := "○"
-		if isSelected {
-			check = "●"
-		}
-
-		cursorStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(isCursor)
-		checkStyle := lipgloss.NewStyle().Foreground(th.CommentNote)
-		if isSelected {
-			checkStyle = checkStyle.Bold(true)
-		}
-
-		if item.isWorkingTree {
-			label := "Working tree changes"
-			labelStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
-			if isCursor {
-				labelStyle = labelStyle.Background(th.BgHighlight)
-			}
-			b.WriteString(cursorStyle.Render(cursor) + checkStyle.Render(check) + " " + labelStyle.Render(label))
-			b.WriteString("\n")
-		} else {
-			c := item.commit
-			hashStyle := lipgloss.NewStyle().Foreground(th.FileModified)
-			summaryStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
-			metaStyle := lipgloss.NewStyle().Foreground(th.FgDim)
-			if isCursor {
-				hashStyle = hashStyle.Background(th.BgHighlight)
-				summaryStyle = summaryStyle.Background(th.BgHighlight)
-				metaStyle = metaStyle.Background(th.BgHighlight)
-			}
-
-			summary := c.Summary
-			maxSummary := a.width - 40
-			if maxSummary < 20 {
-				maxSummary = 20
-			}
-			runes := []rune(summary)
-			if len(runes) > maxSummary {
-				summary = string(runes[:maxSummary-1]) + "…"
-			}
-
-			line := cursorStyle.Render(cursor) +
-				checkStyle.Render(check) + " " +
-				hashStyle.Render(c.ShortID) + " " +
-				summaryStyle.Render(summary) +
-				metaStyle.Render("  "+c.Author+", "+relativeTime(c.Time))
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
+		row := a.renderCommitRow(item.isWorkingTree, item.commit, i == a.pickerCursor, a.pickerSelected[i], a.width)
+		b.WriteString(row)
+		b.WriteString("\n")
 	}
 
 	// Pad to fill
@@ -285,6 +233,58 @@ func (a *App) buildDefaultDescription(commits []vcs.CommitInfo, includesWorkTree
 		sections = append(sections, entry)
 	}
 	return strings.Join(sections, "\n\n")
+}
+
+// renderCommitRow renders a single commit/worktree row for pickers and commit lists.
+func (a *App) renderCommitRow(isWorkingTree bool, commit vcs.CommitInfo, isCursor, isSelected bool, maxWidth int) string {
+	th := a.theme
+
+	cursor := "  "
+	if isCursor {
+		cursor = "> "
+	}
+	check := "○"
+	if isSelected {
+		check = "●"
+	}
+
+	cursorStyle := lipgloss.NewStyle().Foreground(th.FgPrimary).Bold(isCursor)
+	checkStyle := lipgloss.NewStyle().Foreground(th.CommentNote)
+	if isSelected {
+		checkStyle = checkStyle.Bold(true)
+	}
+
+	if isWorkingTree {
+		labelStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+		if isCursor {
+			labelStyle = labelStyle.Background(th.BgHighlight)
+		}
+		return cursorStyle.Render(cursor) + checkStyle.Render(check) + " " + labelStyle.Render("Working tree changes")
+	}
+
+	hashStyle := lipgloss.NewStyle().Foreground(th.FileModified)
+	summaryStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
+	metaStyle := lipgloss.NewStyle().Foreground(th.FgDim)
+	if isCursor {
+		hashStyle = hashStyle.Background(th.BgHighlight)
+		summaryStyle = summaryStyle.Background(th.BgHighlight)
+		metaStyle = metaStyle.Background(th.BgHighlight)
+	}
+
+	summary := commit.Summary
+	maxSummary := maxWidth - 40
+	if maxSummary < 20 {
+		maxSummary = 20
+	}
+	if lipgloss.Width(summary) > maxSummary {
+		summary = ansi.Truncate(summary, maxSummary-1, "") + "…"
+	}
+
+	return cursorStyle.Render(cursor) +
+		checkStyle.Render(check) + " " +
+		hashStyle.Render(commit.ShortID) + " " +
+		summaryStyle.Render(summary) +
+		metaStyle.Render("  "+commit.Author+", "+relativeTime(commit.Time))
 }
 
 func relativeTime(t time.Time) string {

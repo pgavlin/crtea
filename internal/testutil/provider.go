@@ -105,6 +105,10 @@ func (m *MockProvider) PostConversationComment(id string, body string) error {
 	return nil
 }
 
+func (m *MockProvider) Seed(rr *provider.ReviewRequest, comments []provider.Comment, reviews []provider.Review, conv []provider.ConversationComment) {
+	// No-op for test mock.
+}
+
 func (m *MockProvider) Refresh(id string) (*provider.RefreshResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

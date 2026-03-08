@@ -3,7 +3,6 @@ package ui
 import (
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -986,7 +985,7 @@ func TestRenderCommitListWithWorkTree(t *testing.T) {
 	app := newTestApp(t)
 	app.includesWorkTree = true
 	commits := []vcs.CommitInfo{
-		{ID: "c1", ShortID: "c1", Summary: "Test commit", Author: "me", Time: time.Now()},
+		{ID: "c1", ShortID: "c1", Summary: "Test commit", Author: "me", Time: testTime},
 	}
 	diffs := map[string][]model.DiffFile{
 		"c1":        app.diffFiles,
@@ -1007,7 +1006,7 @@ func TestRenderCommitListWithWorkTree(t *testing.T) {
 func TestRenderCommitListFocused(t *testing.T) {
 	app := newTestApp(t)
 	commits := []vcs.CommitInfo{
-		{ID: "c1", ShortID: "c1", Summary: "A commit", Author: "me", Time: time.Now()},
+		{ID: "c1", ShortID: "c1", Summary: "A commit", Author: "me", Time: testTime},
 	}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
 	app.SetCommits(commits, diffs)
@@ -1022,7 +1021,7 @@ func TestRenderCommitListFocused(t *testing.T) {
 func TestRenderCommitListNarrowWidth(t *testing.T) {
 	app := newTestApp(t)
 	commits := []vcs.CommitInfo{
-		{ID: "c1", ShortID: "c1", Summary: "A very long commit summary that should be truncated", Author: "me", Time: time.Now()},
+		{ID: "c1", ShortID: "c1", Summary: "A very long commit summary that should be truncated", Author: "me", Time: testTime},
 	}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
 	app.SetCommits(commits, diffs)

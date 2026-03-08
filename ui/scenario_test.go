@@ -18,6 +18,9 @@ import (
 	"github.com/pgavlin/crtea/vcs"
 )
 
+// testTime is a fixed timestamp used in tests to avoid golden file churn.
+var testTime = time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
+
 var update = flag.Bool("update", false, "update golden files")
 
 // snapshot captures the current View output, strips ANSI codes, and returns it.
@@ -692,8 +695,8 @@ func TestScenarioPickerToReview(t *testing.T) {
 			VcsType:    "git",
 		},
 		RecentCommits: []vcs.CommitInfo{
-			{ID: "aaa", ShortID: "aaa1234", Summary: "Add authentication middleware", Author: "alice", Time: time.Now().Add(-1 * time.Hour)},
-			{ID: "bbb", ShortID: "bbb5678", Summary: "Add unit tests for auth", Author: "alice", Time: time.Now().Add(-30 * time.Minute)},
+			{ID: "aaa", ShortID: "aaa1234", Summary: "Add authentication middleware", Author: "alice", Time: testTime.Add(-1 * time.Hour)},
+			{ID: "bbb", ShortID: "bbb5678", Summary: "Add unit tests for auth", Author: "alice", Time: testTime.Add(-30 * time.Minute)},
 		},
 		WorkingTreeDiff: []model.DiffFile{
 			{
@@ -819,8 +822,8 @@ func TestScenarioCommitListAndDescription(t *testing.T) {
 
 	// Set up commits.
 	commits := []vcs.CommitInfo{
-		{ID: "c1", ShortID: "c1abc", Summary: "Add auth handler", Author: "alice", Time: time.Now().Add(-1 * time.Hour)},
-		{ID: "c2", ShortID: "c2def", Summary: "Add error wrapping", Author: "bob", Time: time.Now().Add(-30 * time.Minute)},
+		{ID: "c1", ShortID: "c1abc", Summary: "Add auth handler", Author: "alice", Time: testTime.Add(-1 * time.Hour)},
+		{ID: "c2", ShortID: "c2def", Summary: "Add error wrapping", Author: "bob", Time: testTime.Add(-30 * time.Minute)},
 	}
 	diffs := map[string][]model.DiffFile{
 		"c1": app.diffFiles,
@@ -977,13 +980,13 @@ func TestScenarioPanelFocusCycling(t *testing.T) {
 
 	// Set up commits for commit list panel.
 	commits := []vcs.CommitInfo{
-		{ID: "c1", ShortID: "c1x", Summary: "Commit one", Author: "alice", Time: time.Now().Add(-1 * time.Hour)},
+		{ID: "c1", ShortID: "c1x", Summary: "Commit one", Author: "alice", Time: testTime.Add(-1 * time.Hour)},
 	}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
 	app.SetCommits(commits, diffs)
 	app.showConversation = true
 	app.session.Conversation = []model.ConversationComment{
-		{Author: "bob", Body: "Reviewing now.", CreatedAt: time.Now()},
+		{Author: "bob", Body: "Reviewing now.", CreatedAt: testTime},
 	}
 
 	// Start in diff panel.

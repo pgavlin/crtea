@@ -78,31 +78,27 @@ func MergeImportedComments(fr *model.FileReview, lineComments map[int][]model.Co
 	added := 0
 	for line, cs := range lineComments {
 		for _, c := range cs {
-			// Skip if already imported (by ExternalID)
+			// Single pass: skip duplicates by ExternalID and remove submitted
+			// local comments that match the incoming remote comment.
 			found := false
+			n := 0
 			for _, existing := range fr.LineComments[line] {
 				if existing.ExternalID == c.ExternalID {
 					found = true
-					break
 				}
-			}
-			if found {
-				continue
-			}
-
-			// Remove submitted local duplicates (same content/author/side, no ExternalID)
-			existing := fr.LineComments[line]
-			filtered := existing[:0]
-			for _, e := range existing {
-				if e.Submitted && e.ExternalID == "" && e.Author == c.Author && e.Content == c.Content && e.Side == c.Side {
+				if existing.Submitted && existing.ExternalID == "" &&
+					existing.Author == c.Author && existing.Content == c.Content && existing.Side == c.Side {
 					continue // drop the submitted local duplicate
 				}
-				filtered = append(filtered, e)
+				fr.LineComments[line][n] = existing
+				n++
 			}
-			fr.LineComments[line] = filtered
+			fr.LineComments[line] = fr.LineComments[line][:n]
 
-			fr.AddLineComment(line, c)
-			added++
+			if !found {
+				fr.AddLineComment(line, c)
+				added++
+			}
 		}
 	}
 	return added

@@ -264,6 +264,13 @@ func NewPickerApp(backend vcs.Backend, th theme.Theme, hl *syntax.Highlighter, s
 func (a *App) rebuildFileTree() {
 	a.fileTree = buildFileTree(a.diffFiles)
 	a.fileTreeRows = flattenTree(a.fileTree, a.collapsedDirs)
+	if a.fileListCursor >= len(a.fileTreeRows) {
+		a.fileListCursor = len(a.fileTreeRows) - 1
+	}
+	if a.fileListCursor < 0 {
+		a.fileListCursor = 0
+	}
+	a.fileListScroll = 0
 }
 
 func (a *App) rebuildAnnotations() {
@@ -322,8 +329,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		return a.handleKey(msg)
-	default:
-		_ = msg
 	}
 	return &a, nil
 }
@@ -366,67 +371,40 @@ func (a App) View() tea.View {
 		contentHeight -= convHeight
 	}
 
-	// Bug report editor pane (steals height from content area)
+	// Editor panes steal height from content area
+	var editorPane string
 	if a.inputMode == modeBug {
-		bugHeight := 8
-		if bugHeight > contentHeight-2 {
-			bugHeight = contentHeight - 2
+		editorHeight := 8
+		if editorHeight > contentHeight-2 {
+			editorHeight = contentHeight - 2
 		}
-		if bugHeight < 3 {
-			bugHeight = 3
+		if editorHeight < 3 {
+			editorHeight = 3
 		}
-		contentHeight -= bugHeight + 1
-		if a.showFileList {
-			fileListWidth := a.fileListWidth()
-			diffWidth := a.width - fileListWidth - 1
-			if diffWidth < 1 {
-				diffWidth = 1
-			}
-			fileList := a.renderFileList(fileListWidth, contentHeight)
-			diffView := a.renderDiffView(diffWidth, contentHeight)
-			b.WriteString(joinHorizontal(fileList, diffView, contentHeight))
-		} else {
-			b.WriteString(a.renderDiffView(a.width, contentHeight))
-		}
-		b.WriteString("\n")
-		b.WriteString(a.renderBugEditor(a.width, bugHeight))
+		contentHeight -= editorHeight + 1
+		editorPane = a.renderBugEditor(a.width, editorHeight)
 	} else if a.inputMode == modeReview {
-		reviewHeight := 8
-		if reviewHeight > contentHeight-2 {
-			reviewHeight = contentHeight - 2
+		editorHeight := 8
+		if editorHeight > contentHeight-2 {
+			editorHeight = contentHeight - 2
 		}
-		if reviewHeight < 3 {
-			reviewHeight = 3
+		if editorHeight < 3 {
+			editorHeight = 3
 		}
-		contentHeight -= reviewHeight + 1 // +1 for separator newline
-		// Render content first, then review pane below
-		if a.showFileList {
-			fileListWidth := a.fileListWidth()
-			diffWidth := a.width - fileListWidth - 1
-			if diffWidth < 1 {
-				diffWidth = 1
-			}
-			fileList := a.renderFileList(fileListWidth, contentHeight)
-			diffView := a.renderDiffView(diffWidth, contentHeight)
-			b.WriteString(joinHorizontal(fileList, diffView, contentHeight))
-		} else {
-			b.WriteString(a.renderDiffView(a.width, contentHeight))
-		}
-		b.WriteString("\n")
-		b.WriteString(a.renderReviewEditor(a.width, reviewHeight))
-	} else if a.inputMode == modeHelp {
+		contentHeight -= editorHeight + 1
+		editorPane = a.renderReviewEditor(a.width, editorHeight)
+	}
+
+	// Main content area
+	if a.inputMode == modeHelp {
 		b.WriteString(a.renderHelp(contentHeight))
-	} else if a.showFileList {
-		fileListWidth := a.fileListWidth()
-		diffWidth := a.width - fileListWidth - 1 // -1 for separator
-		if diffWidth < 1 {
-			diffWidth = 1
-		}
-		fileList := a.renderFileList(fileListWidth, contentHeight)
-		diffView := a.renderDiffView(diffWidth, contentHeight)
-		b.WriteString(joinHorizontal(fileList, diffView, contentHeight))
 	} else {
-		b.WriteString(a.renderDiffView(a.width, contentHeight))
+		b.WriteString(a.renderContentArea(contentHeight))
+	}
+
+	if editorPane != "" {
+		b.WriteString("\n")
+		b.WriteString(editorPane)
 	}
 
 	// Conversation panel (below diff content)
@@ -440,6 +418,21 @@ func (a App) View() tea.View {
 	b.WriteString(a.renderFooter())
 
 	return tea.NewView(b.String())
+}
+
+// renderContentArea renders the diff view, optionally with the file list sidebar.
+func (a *App) renderContentArea(height int) string {
+	if a.showFileList {
+		fileListWidth := a.fileListWidth()
+		diffWidth := a.width - fileListWidth - 1
+		if diffWidth < 1 {
+			diffWidth = 1
+		}
+		fileList := a.renderFileList(fileListWidth, height)
+		diffView := a.renderDiffView(diffWidth, height)
+		return joinHorizontal(fileList, diffView, height)
+	}
+	return a.renderDiffView(a.width, height)
 }
 
 // captureScreen renders the current screen as it would appear in normal mode.
@@ -485,6 +478,12 @@ func (a *App) currentFilePath() string {
 		return ""
 	}
 	return a.diffFiles[idx].DisplayPath()
+}
+
+// markDirty marks the session as having unsaved changes and resets the quit warning.
+func (a *App) markDirty() {
+	a.dirty = true
+	a.quitWarned = false
 }
 
 // setMessage sets a status message.
@@ -557,7 +556,7 @@ func (a *App) descriptionLineCount() int {
 	if a.session == nil || a.session.Description == "" {
 		return 1
 	}
-	return len(strings.Split(a.session.Description, "\n"))
+	return strings.Count(a.session.Description, "\n") + 1
 }
 
 // mergeEnabledDiffs combines per-commit diffs for all enabled commits.

@@ -235,6 +235,10 @@ func (m *Mock) PostConversationComment(id string, body string) error {
 	return nil
 }
 
+func (m *Mock) Seed(rr *provider.ReviewRequest, comments []provider.Comment, reviews []provider.Review, conv []provider.ConversationComment) {
+	// No-op: Mock tracks refresh state internally via lastRefreshIdx.
+}
+
 func (m *Mock) Refresh(id string) (*provider.RefreshResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

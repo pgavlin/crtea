@@ -1989,8 +1989,8 @@ func newPickerApp(t *testing.T) *App {
 			VcsType:    "git",
 		},
 		RecentCommits: []vcs.CommitInfo{
-			{ID: "aaa", ShortID: "aaa", Summary: "First commit", Author: "alice", Time: time.Now().Add(-1 * time.Hour)},
-			{ID: "bbb", ShortID: "bbb", Summary: "Second commit", Author: "bob", Time: time.Now().Add(-2 * time.Hour)},
+			{ID: "aaa", ShortID: "aaa", Summary: "First commit", Author: "alice", Time: testTime.Add(-1 * time.Hour)},
+			{ID: "bbb", ShortID: "bbb", Summary: "Second commit", Author: "bob", Time: testTime.Add(-2 * time.Hour)},
 		},
 		WorkingTreeDiff: []model.DiffFile{
 			{
@@ -2249,8 +2249,8 @@ func TestSetCommits(t *testing.T) {
 func TestCommitListRender(t *testing.T) {
 	app := newTestApp(t)
 	commits := []vcs.CommitInfo{
-		{ID: "c1", ShortID: "c1", Summary: "Commit 1", Author: "alice", Time: time.Now().Add(-10 * time.Minute)},
-		{ID: "c2", ShortID: "c2", Summary: "Commit 2", Author: "bob", Time: time.Now().Add(-1 * time.Hour)},
+		{ID: "c1", ShortID: "c1", Summary: "Commit 1", Author: "alice", Time: testTime.Add(-10 * time.Minute)},
+		{ID: "c2", ShortID: "c2", Summary: "Commit 2", Author: "bob", Time: testTime.Add(-1 * time.Hour)},
 	}
 	diffs := map[string][]model.DiffFile{
 		"c1": app.diffFiles,
@@ -2409,8 +2409,8 @@ func TestDescriptionScroll(t *testing.T) {
 func TestRenderConversation(t *testing.T) {
 	app := newTestApp(t)
 	app.session.Conversation = []model.ConversationComment{
-		{Author: "alice", Body: "Hello", CreatedAt: time.Now()},
-		{Author: "bob", Body: "World", CreatedAt: time.Now()},
+		{Author: "alice", Body: "Hello", CreatedAt: testTime},
+		{Author: "bob", Body: "World", CreatedAt: testTime},
 	}
 	app.showConversation = true
 
@@ -2451,7 +2451,7 @@ func TestRenderConversationWithEditor(t *testing.T) {
 func TestViewWithConversationPanel(t *testing.T) {
 	app := newTestApp(t)
 	app.session.Conversation = []model.ConversationComment{
-		{Author: "alice", Body: "test", CreatedAt: time.Now()},
+		{Author: "alice", Body: "test", CreatedAt: testTime},
 	}
 	app.showConversation = true
 
@@ -2784,7 +2784,7 @@ func TestSetProvider(t *testing.T) {
 func TestViewWithCommitListPanel(t *testing.T) {
 	app := newTestApp(t)
 	commits := []vcs.CommitInfo{
-		{ID: "c1", ShortID: "c1", Summary: "My commit", Author: "me", Time: time.Now()},
+		{ID: "c1", ShortID: "c1", Summary: "My commit", Author: "me", Time: testTime},
 	}
 	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
 	app.SetCommits(commits, diffs)

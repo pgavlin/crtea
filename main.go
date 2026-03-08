@@ -315,11 +315,7 @@ func runWithProvider(backend vcs.Backend, p provider.Provider, id string, th the
 
 	// Seed the provider's refresh baseline so the first :refresh only
 	// reports items that appeared after startup.
-	if seeder, ok := p.(interface {
-		Seed(*provider.ReviewRequest, []provider.Comment, []provider.Review, []provider.ConversationComment)
-	}); ok {
-		seeder.Seed(rr, comments, reviews, convComments)
-	}
+	p.Seed(rr, comments, reviews, convComments)
 
 	app := ui.NewApp(backend, files, session, th, hl, store)
 	app.SetProvider(p, id)
