@@ -1,9 +1,10 @@
 package model
 
 import (
+	"crypto/rand"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/oklog/ulid/v2"
 )
 
 // FileReview tracks review status and comments for a single file.
@@ -145,7 +146,7 @@ func NewSession(repoPath, branchName, baseCommit string, source DiffSource) *Rev
 }
 
 func generateSessionID() string {
-	return uuid.New().String()
+	return ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
 }
 
 // GetOrCreateFileReview gets or creates a FileReview for the given path.
