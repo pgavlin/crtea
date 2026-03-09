@@ -776,6 +776,90 @@ func TestExpandTabs(t *testing.T) {
 	}
 }
 
+// --- stripNewlines ---
+
+func TestStripNewlines(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"no newlines", "no newlines"},
+		{"hello\nworld", "helloworld"},
+		{"hello\r\nworld", "helloworld"},
+		{"trailing\n", "trailing"},
+		{"\r\n\n\r", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := stripNewlines(tt.input)
+		if got != tt.want {
+			t.Errorf("stripNewlines(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestSanitizeSpans(t *testing.T) {
+	spans := []model.StyledSpan{
+		{Text: "hello\nworld", FG: "#ff0000"},
+		{Text: "clean", FG: "#00ff00"},
+		{Text: "line\r\nbreak", FG: ""},
+	}
+	got := sanitizeSpans(spans)
+	if got[0].Text != "helloworld" {
+		t.Errorf("expected embedded newline removed, got %q", got[0].Text)
+	}
+	if got[0].FG != "#ff0000" {
+		t.Errorf("expected FG preserved, got %q", got[0].FG)
+	}
+	if got[1].Text != "clean" {
+		t.Errorf("expected clean span unchanged, got %q", got[1].Text)
+	}
+	if got[2].Text != "linebreak" {
+		t.Errorf("expected \\r\\n removed, got %q", got[2].Text)
+	}
+}
+
+func TestRenderDiffLineWithEmbeddedNewline(t *testing.T) {
+	app := newTestApp(t)
+
+	// Find any diff line annotation and inject embedded newlines into content
+	for _, ann := range app.annotations {
+		if ann.Type != annDiffLine {
+			continue
+		}
+		file := app.diffFiles[ann.FileIdx]
+		line := &file.Hunks[ann.HunkIdx].Lines[ann.LineIdx]
+
+		// Test plain content path: inject newline
+		origContent := line.Content
+		origSpans := line.Spans
+		line.Content = "first line\nsecond line"
+		line.Spans = nil
+
+		result := app.renderDiffLine(ann, 80, false, false)
+		if strings.Contains(result, "\n") {
+			t.Error("rendered diff line with embedded newline should not contain \\n")
+		}
+
+		// Test syntax spans path: inject newline in span
+		line.Content = origContent
+		line.Spans = []model.StyledSpan{
+			{Text: "span\nwith\nnewlines", FG: "#aabbcc"},
+		}
+
+		result = app.renderDiffLine(ann, 80, false, false)
+		if strings.Contains(result, "\n") {
+			t.Error("rendered diff line with newline in spans should not contain \\n")
+		}
+
+		// Restore
+		line.Content = origContent
+		line.Spans = origSpans
+		return
+	}
+	t.Fatal("no diff line annotation found")
+}
+
 // --- truncateOrPad ---
 
 func TestTruncateOrPad(t *testing.T) {

@@ -821,11 +821,11 @@ func (a *App) renderDiffLine(ann annotatedLine, width int, isCursor, isVisualSel
 	searchPattern := strings.ToLower(a.searchHighlight)
 
 	if line.Spans != nil {
-		rendered := a.renderSyntaxContent(line.Spans, contentWidth, contentStyle, bgColor, searchPattern)
+		rendered := a.renderSyntaxContent(sanitizeSpans(line.Spans), contentWidth, contentStyle, bgColor, searchPattern)
 		return gutter + markerStyle.Render(marker) + rendered
 	}
 
-	rendered := a.renderPlainContent(line.Content, contentWidth, contentStyle, searchPattern)
+	rendered := a.renderPlainContent(stripNewlines(line.Content), contentWidth, contentStyle, searchPattern)
 	return gutter + markerStyle.Render(marker) + rendered
 }
 
@@ -1528,6 +1528,29 @@ func expandTabs(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// stripNewlines removes \n and \r from a string. Diff line content should
+// never contain embedded newlines; if present they break width calculations
+// and horizontal join alignment.
+func stripNewlines(s string) string {
+	if !strings.ContainsAny(s, "\n\r") {
+		return s
+	}
+	return strings.NewReplacer("\r\n", "", "\n", "", "\r", "").Replace(s)
+}
+
+// sanitizeSpans strips embedded newlines from span text so that
+// lipgloss.Width and Style.Render behave correctly on single-line content.
+func sanitizeSpans(spans []model.StyledSpan) []model.StyledSpan {
+	clean := make([]model.StyledSpan, len(spans))
+	for i, sp := range spans {
+		clean[i] = model.StyledSpan{
+			Text: stripNewlines(sp.Text),
+			FG:   sp.FG,
+		}
+	}
+	return clean
 }
 
 // wrapLine splits a single line into multiple lines so that each fits within
