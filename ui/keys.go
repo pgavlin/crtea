@@ -1719,6 +1719,9 @@ func (a *App) submitToProvider() tea.Cmd {
 			State:    state,
 			Comments: drafts,
 		}
+		if a.session.Provider != nil {
+			req.CommitID = a.session.Provider.HeadSHA
+		}
 		if err := a.provider.SubmitReview(a.providerID, req); err != nil {
 			a.log.Error("failed to submit review", "state", state, "error", err)
 			a.setMessage("Submit failed: "+err.Error(), messageError)
@@ -1826,6 +1829,11 @@ func (a *App) refreshFromProvider() tea.Cmd {
 				}
 			}
 		}
+	}
+
+	// Update head SHA from remote
+	if result.Request != nil && result.Request.HeadSHA != "" && a.session.Provider != nil {
+		a.session.Provider.HeadSHA = result.Request.HeadSHA
 	}
 
 	// Re-parse diff if changed

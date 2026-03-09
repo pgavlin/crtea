@@ -245,6 +245,9 @@ func (g *GitHub) SubmitReview(id string, review provider.SubmitReviewRequest) er
 		"event": exportReviewEvent(review.State),
 		"body":  review.Body,
 	}
+	if review.CommitID != "" {
+		body["commit_id"] = review.CommitID
+	}
 	if len(review.Comments) > 0 {
 		var ghComments []map[string]any
 		for _, c := range review.Comments {

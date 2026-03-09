@@ -64,6 +64,7 @@ type ConversationComment struct {
 type SubmitReviewRequest struct {
 	Body     string
 	State    ReviewState
+	CommitID string // SHA of the commit to review against
 	Comments []CommentDraft
 }
 

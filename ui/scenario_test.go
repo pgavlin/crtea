@@ -126,7 +126,7 @@ func newScenarioApp(t *testing.T) (*App, *testutil.MockProvider, *testutil.MockV
 	}
 
 	session := model.NewSession("/tmp/test", "feature", "abc123", model.DiffPullRequest)
-	session.Provider = &model.ProviderInfo{Name: "mock", ID: "99", URL: "https://example.com/pr/99"}
+	session.Provider = &model.ProviderInfo{Name: "mock", ID: "99", URL: "https://example.com/pr/99", HeadSHA: "deadbeef"}
 	session.Reviewer = "testuser"
 	for _, f := range files {
 		session.GetOrCreateFileReview(f.DisplayPath(), f.Status)
@@ -639,6 +639,9 @@ func TestScenarioSubmitReviewWithApproval(t *testing.T) {
 	}
 	if mockProv.SubmittedReviews[0].State != provider.ReviewApprove {
 		t.Errorf("expected Approve state, got %v", mockProv.SubmittedReviews[0].State)
+	}
+	if mockProv.SubmittedReviews[0].CommitID != "deadbeef" {
+		t.Errorf("expected CommitID 'deadbeef', got %q", mockProv.SubmittedReviews[0].CommitID)
 	}
 }
 

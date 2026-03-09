@@ -103,9 +103,10 @@ func (a *App) loadProviderCmd() tea.Cmd {
 			session = model.NewSession(info.RootPath, info.BranchName, info.HeadCommit, diffSource)
 		}
 		session.Provider = &model.ProviderInfo{
-			Name: p.Name(),
-			ID:   id,
-			URL:  rr.URL,
+			Name:    p.Name(),
+			ID:      id,
+			URL:     rr.URL,
+			HeadSHA: rr.HeadSHA,
 		}
 		session.IsDraft = rr.IsDraft
 		if session.Description == "" {

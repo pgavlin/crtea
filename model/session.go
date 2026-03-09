@@ -94,9 +94,10 @@ const (
 
 // ProviderInfo identifies a remote code review provider and request.
 type ProviderInfo struct {
-	Name string `json:"name"`          // "github", "gitlab", etc.
-	ID   string `json:"id"`            // "123" for PR #123
-	URL  string `json:"url,omitempty"` // web URL
+	Name    string `json:"name"`               // "github", "gitlab", etc.
+	ID      string `json:"id"`                 // "123" for PR #123
+	URL     string `json:"url,omitempty"`      // web URL
+	HeadSHA string `json:"head_sha,omitempty"` // HEAD commit SHA of the review
 }
 
 // ConversationComment is a general comment not tied to code.
