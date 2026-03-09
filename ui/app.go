@@ -133,6 +133,7 @@ type App struct {
 	// Visual selection
 	visualAnchor     int // line number where visual selection started
 	visualAnchorSide model.LineSide
+	visualAnchorFile int // file index where visual selection started
 	commentLineRange *model.LineRange
 
 	// Reply tracking

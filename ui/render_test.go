@@ -442,6 +442,52 @@ func TestMultiFileViewShowsBothFiles(t *testing.T) {
 	}
 }
 
+func TestVisualSelectDoesNotCrossFiles(t *testing.T) {
+	app := newMultiFileApp(t)
+
+	// Find a diff line in the first file (alpha.go) and one in the second file (beta.go).
+	firstFileIdx := -1
+	secondFileIdx := -1
+	for i, ann := range app.annotations {
+		if ann.Type != annDiffLine {
+			continue
+		}
+		if ann.FileIdx == 0 && firstFileIdx == -1 {
+			firstFileIdx = i
+		}
+		if ann.FileIdx == 1 && secondFileIdx == -1 {
+			secondFileIdx = i
+		}
+	}
+	if firstFileIdx == -1 || secondFileIdx == -1 {
+		t.Fatal("expected diff lines in both files")
+	}
+
+	// Start visual selection on the first file's diff line.
+	app.cursorLine = firstFileIdx
+	app.enterVisualMode()
+
+	// Move cursor to the last diff line in the first file.
+	lastFirstFile := firstFileIdx
+	for i, ann := range app.annotations {
+		if ann.Type == annDiffLine && ann.FileIdx == 0 {
+			lastFirstFile = i
+		}
+	}
+	app.cursorLine = lastFirstFile
+
+	// Lines in the first file should be selected.
+	if !app.isVisualSelected(firstFileIdx) {
+		t.Error("first file diff line should be selected")
+	}
+
+	// Lines in the second file must NOT be selected, even if their line numbers
+	// fall within the selected range.
+	if app.isVisualSelected(secondFileIdx) {
+		t.Error("second file diff line should NOT be selected (cross-file leak)")
+	}
+}
+
 // --- View resize ---
 
 func TestViewResizeDoesNotPanic(t *testing.T) {

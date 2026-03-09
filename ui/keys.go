@@ -1261,6 +1261,7 @@ func (a *App) enterVisualMode() {
 	}
 	a.visualAnchor = lineNo
 	a.visualAnchorSide = side
+	a.visualAnchorFile = ann.FileIdx
 	a.inputMode = modeVisualSelect
 }
 

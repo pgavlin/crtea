@@ -567,6 +567,11 @@ func (a *App) isVisualSelected(idx int) bool {
 
 	cursorAnn := a.annotations[a.cursorLine]
 
+	// Only select lines in the same file as the anchor.
+	if ann.FileIdx != a.visualAnchorFile {
+		return false
+	}
+
 	// Determine cursor side: old-only (deletion) vs new (addition or context).
 	cursorSide := model.SideNew
 	if cursorAnn.NewLineNo == 0 {
@@ -615,7 +620,7 @@ func (a *App) isVisualSelected(idx int) bool {
 // visualAnchorIdx finds the current annotation index for the visual anchor.
 func (a *App) visualAnchorIdx() int {
 	for i, ann := range a.annotations {
-		if ann.Type != annDiffLine {
+		if ann.Type != annDiffLine || ann.FileIdx != a.visualAnchorFile {
 			continue
 		}
 		if a.visualAnchorSide == model.SideOld && ann.OldLineNo == a.visualAnchor {
