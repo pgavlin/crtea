@@ -39,8 +39,9 @@ func composeHunkSets(aHunks, bHunks []model.DiffHunk) []model.DiffHunk {
 
 	// Map from A-state line number to its info
 	aNewLines := map[int]aLineInfo{}
-	// A's deletions (lines in O that don't exist in A)
+	// A's deletions (lines in O that don't exist in A), keyed by index for removal
 	var aDeletions []aLineInfo
+	aDelConsumed := map[int]bool{}
 
 	for _, h := range aHunks {
 		for _, line := range h.Lines {
@@ -147,20 +148,43 @@ func composeHunkSets(aHunks, bHunks []model.DiffHunk) []model.DiffHunk {
 				}
 
 			case model.OriginAddition:
-				// B adds this line → addition in O→B
-				result = append(result, composedLine{
-					origin:    model.OriginAddition,
-					content:   line.Content,
-					newLineNo: line.NewLineNo,
-					spans:     line.Spans,
-					sortKey:   line.NewLineNo,
-				})
+				// B adds this line. Check if it restores a line that A deleted
+				// (same content). If so, the change is a no-op → context line.
+				restored := false
+				for i, d := range aDeletions {
+					if !aDelConsumed[i] && d.content == line.Content {
+						aDelConsumed[i] = true
+						result = append(result, composedLine{
+							origin:    model.OriginContext,
+							content:   line.Content,
+							oldLineNo: d.oldLineNo,
+							newLineNo: line.NewLineNo,
+							spans:     line.Spans,
+							sortKey:   line.NewLineNo,
+						})
+						restored = true
+						break
+					}
+				}
+				if !restored {
+					// Genuine addition in O→B
+					result = append(result, composedLine{
+						origin:    model.OriginAddition,
+						content:   line.Content,
+						newLineNo: line.NewLineNo,
+						spans:     line.Spans,
+						sortKey:   line.NewLineNo,
+					})
+				}
 			}
 		}
 	}
 
 	// Add A's deletions (lines deleted by A that B doesn't re-add)
-	for _, d := range aDeletions {
+	for i, d := range aDeletions {
+		if aDelConsumed[i] {
+			continue
+		}
 		result = append(result, composedLine{
 			origin:    model.OriginDeletion,
 			content:   d.content,

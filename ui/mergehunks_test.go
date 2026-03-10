@@ -243,3 +243,40 @@ func TestComposeHunkSets_EmptyInputs(t *testing.T) {
 		t.Fatalf("expected 1 hunk with nil B, got %d", len(result))
 	}
 }
+
+func TestComposeHunkSets_ChangeAndRestore(t *testing.T) {
+	// Commit A: line 5 "foo" → "bar"
+	// Commit B: line 5 "bar" → "foo" (restores original)
+	// Combined: no change — line should appear as context only
+	aHunks := []model.DiffHunk{{
+		OldStart: 4, OldCount: 3, NewStart: 4, NewCount: 3,
+		Header: "@@ -4,3 +4,3 @@",
+		Lines: []model.DiffLine{
+			{Origin: model.OriginContext, Content: "ctx4", OldLineNo: 4, NewLineNo: 4},
+			{Origin: model.OriginDeletion, Content: "foo", OldLineNo: 5},
+			{Origin: model.OriginAddition, Content: "bar", NewLineNo: 5},
+			{Origin: model.OriginContext, Content: "ctx6", OldLineNo: 6, NewLineNo: 6},
+		},
+	}}
+	bHunks := []model.DiffHunk{{
+		OldStart: 4, OldCount: 3, NewStart: 4, NewCount: 3,
+		Header: "@@ -4,3 +4,3 @@",
+		Lines: []model.DiffLine{
+			{Origin: model.OriginContext, Content: "ctx4", OldLineNo: 4, NewLineNo: 4},
+			{Origin: model.OriginDeletion, Content: "bar", OldLineNo: 5},
+			{Origin: model.OriginAddition, Content: "foo", NewLineNo: 5},
+			{Origin: model.OriginContext, Content: "ctx6", OldLineNo: 6, NewLineNo: 6},
+		},
+	}}
+
+	result := composeHunkSets(aHunks, bHunks)
+
+	// All lines in the result should be context — the change was fully reverted
+	for _, h := range result {
+		for _, l := range h.Lines {
+			if l.Origin != model.OriginContext {
+				t.Errorf("expected only context lines, got %v: %q", l.Origin, l.Content)
+			}
+		}
+	}
+}
