@@ -52,6 +52,10 @@ type gapID struct {
 // wrapComment returns the wrapped display lines for a comment's content.
 // The result does not include the header line.
 func wrapComment(content string, wrapWidth int) []string {
+	// Normalize \r\n (Windows/GitHub) and stray \r to \n before splitting.
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
 	if wrapWidth <= 0 {
 		return strings.Split(content, "\n")
 	}

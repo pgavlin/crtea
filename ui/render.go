@@ -183,7 +183,9 @@ func (a *App) renderConversation(width, height int, isFocused bool) string {
 				header += " " + timeStyle.Render(cc.CreatedAt.Format("Jan 2 15:04"))
 			}
 			contentLines = append(contentLines, truncateOrPad(header, width))
-			for _, bodyLine := range strings.Split(cc.Body, "\n") {
+			body := strings.ReplaceAll(cc.Body, "\r\n", "\n")
+			body = strings.ReplaceAll(body, "\r", "\n")
+			for _, bodyLine := range strings.Split(body, "\n") {
 				contentLines = append(contentLines, truncateOrPad("    "+bodyStyle.Render(bodyLine), width))
 			}
 		}
