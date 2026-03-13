@@ -704,6 +704,32 @@ func TestRenderCommentEditor(t *testing.T) {
 	}
 }
 
+func TestRenderCommentEditorCursorMidText(t *testing.T) {
+	app := newTestApp(t)
+	app.commentBuffer = "hello world"
+	app.commentCursor = 5 // cursor on the space between "hello" and "world"
+	app.commentType = model.CommentNote
+	app.inputMode = modeComment
+
+	lines := app.renderCommentEditor(80)
+	joined := strings.Join(lines, "\n")
+
+	// The character at cursor position (space) should be highlighted with reverse video,
+	// not inserted as a █ block that shifts subsequent text.
+	// Reverse video: \x1b[7m + char + \x1b[27m
+	if !strings.Contains(joined, "\x1b[7m \x1b[27m") {
+		t.Error("cursor should highlight the character at cursor position with reverse video")
+	}
+	// The █ block cursor should NOT appear anywhere
+	if strings.Contains(joined, "█") {
+		t.Error("cursor should not be rendered as an inserted █ block character")
+	}
+	// Both parts of the text should be present without extra characters between them
+	if !strings.Contains(joined, "hello") || !strings.Contains(joined, "world") {
+		t.Error("both parts of text around cursor should be present")
+	}
+}
+
 func TestRenderCommentEditorNarrow(t *testing.T) {
 	app := newTestApp(t)
 	app.commentBuffer = "x"
