@@ -17,7 +17,7 @@ Files              ││ [M] auth/handler.go
 ╭ Edit PR Description ─────────────────────────────────────────────────────────────────────────────╮
 │ Fix auth handling                                                                                │
 │                                                                                                  │
-│ This PR fixes the auth handler to use context.█                                                  │
+│ This PR fixes the auth handler to use context.                                                   │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │

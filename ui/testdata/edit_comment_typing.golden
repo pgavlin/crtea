@@ -5,7 +5,7 @@ Files              ││ [M] auth/handler.go
                    ││   2      -func Handle(w http.ResponseWriter, r *http.Request) {               
                    ││        2 +func Handle(ctx context.Context, w http.ResponseWriter, r *http.Req…
                    ││          ╭ Note ─────────────────────────────────────────────────────────────╮
-                   ││          │ This context parameter MUST be documented in the godoc.█          │
+                   ││          │ This context parameter MUST be documented in the godoc.           │
                    ││          ╰───────────────────────────────────────────────────────────────────╯
                    ││   3    3      token := r.Header.Get("Authorization")                          
                    ││ ⋯ 6 lines hidden [Enter to expand]                                            

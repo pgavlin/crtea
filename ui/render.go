@@ -1232,13 +1232,19 @@ func (a *App) renderCommentEditor(width int) []string {
 	var lines []string
 	lines = append(lines, gutter+borderStyle.Render("╭")+typeBadge+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
 
-	// Wrap the buffer content, inserting cursor
+	// Wrap the buffer content, highlighting cursor cell
 	buf := a.commentBuffer
 	cursor := a.commentCursor
-	// Insert cursor marker
-	before := buf[:cursor]
-	after := buf[cursor:]
-	display := before + "█" + after
+	// Highlight the character under the cursor using reverse video
+	var display string
+	if cursor < len(buf) {
+		before := buf[:cursor]
+		ch := string(buf[cursor])
+		after := buf[cursor+1:]
+		display = before + "\x1b[7m" + ch + "\x1b[27m" + after
+	} else {
+		display = buf + "\x1b[7m \x1b[27m"
+	}
 
 	wrapWidth := innerWidth
 	if wrapWidth < 10 {
@@ -1246,7 +1252,7 @@ func (a *App) renderCommentEditor(width int) []string {
 	}
 	wrapped := wrapComment(display, wrapWidth)
 	if len(wrapped) == 0 {
-		wrapped = []string{"█"}
+		wrapped = []string{"\x1b[7m \x1b[27m"}
 	}
 
 	for _, wl := range wrapped {
@@ -1282,10 +1288,16 @@ func (a *App) renderEditorBoxFull(width, height int, borderColor color.Color, bu
 	var lines []string
 	lines = append(lines, borderStyle.Render("╭")+header+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
 
-	// Content lines with cursor
-	before := buf[:cursor]
-	after := buf[cursor:]
-	display := before + "█" + after
+	// Content lines with cursor - highlight the cell under cursor
+	var display string
+	if cursor < len(buf) {
+		before := buf[:cursor]
+		ch := string(buf[cursor])
+		after := buf[cursor+1:]
+		display = before + "\x1b[7m" + ch + "\x1b[27m" + after
+	} else {
+		display = buf + "\x1b[7m \x1b[27m"
+	}
 
 	wrapWidth := innerWidth
 	if wrapWidth < 10 {
@@ -1293,7 +1305,7 @@ func (a *App) renderEditorBoxFull(width, height int, borderColor color.Color, bu
 	}
 	wrapped := wrapComment(display, wrapWidth)
 	if len(wrapped) == 0 {
-		wrapped = []string{"█"}
+		wrapped = []string{"\x1b[7m \x1b[27m"}
 	}
 
 	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)

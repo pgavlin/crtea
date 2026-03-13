@@ -12,7 +12,7 @@ Files              ││ [M] auth/handler.go
                    ││       11 +        log.Printf("auth error: %v", err)                           
                    ││       12 +        return fmt.Errorf("auth: %w", err)                          
                    ││          ╭ Note ─────────────────────────────────────────────────────────────╮
-                   ││          │ Both error handling lines need tests.█                            │
+                   ││          │ Both error handling lines need tests.                             │
                    ││          ╰───────────────────────────────────────────────────────────────────╯
                    ││  12   13      }                                                               
                    ││                                                                               

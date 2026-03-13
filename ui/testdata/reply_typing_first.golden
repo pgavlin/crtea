@@ -8,7 +8,7 @@ Files              ││ [M] auth/handler.go
                    ││          │ Why did you add the context parameter here?                       │
                    ││          ╰───────────────────────────────────────────────────────────────────╯
                    ││          ╭ Note ─────────────────────────────────────────────────────────────╮
-                   ││          │ Good point, I added it for request tracing.█                      │
+                   ││          │ Good point, I added it for request tracing.                       │
                    ││          ╰───────────────────────────────────────────────────────────────────╯
                    ││   3    3      token := r.Header.Get("Authorization")                          
                    ││ ⋯ 6 lines hidden [Enter to expand]                                            
