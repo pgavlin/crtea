@@ -1311,14 +1311,15 @@ func (a *App) renderEditorBoxFull(width, height int, borderColor color.Color, bu
 	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
 	maxContentLines := height - 2 // top + bottom border
 
-	// Find the line containing the cursor (the reverse-video escape) and
-	// compute a scroll offset so that line is always visible.
-	cursorLine := 0
-	for i, wl := range wrapped {
-		if strings.Contains(wl, "\x1b[7m") {
-			cursorLine = i
-			break
-		}
+	// Find the wrapped line containing the cursor by wrapping the text up
+	// to the cursor position and counting the resulting lines.
+	textBeforeCursor := buf
+	if cursor < len(buf) {
+		textBeforeCursor = buf[:cursor]
+	}
+	cursorLine := len(wrapComment(textBeforeCursor, wrapWidth)) - 1
+	if cursorLine < 0 {
+		cursorLine = 0
 	}
 	scrollOffset := 0
 	if cursorLine >= maxContentLines {
