@@ -232,19 +232,19 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 
 	// Tab to switch panels
 	case key.Code == tea.KeyTab:
-		hasCommitList := a.commitListHeight() > 0
+		hasTopPanel := a.hasTopPanel()
 		hasConversation := a.showConversation
 		switch a.focusedPanel {
 		case panelDiff:
 			if a.showFileList {
 				a.focusedPanel = panelFileList
-			} else if hasCommitList {
+			} else if hasTopPanel {
 				a.focusedPanel = panelCommitList
 			} else if hasConversation {
 				a.focusedPanel = panelConversation
 			}
 		case panelFileList:
-			if hasCommitList {
+			if hasTopPanel {
 				a.focusedPanel = panelCommitList
 			} else if hasConversation {
 				a.focusedPanel = panelConversation
@@ -314,6 +314,11 @@ func (a App) handleNormalKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 			a.showDescription = !a.showDescription
 			a.showConversation = false
 			a.descScroll = 0
+			if a.showDescription {
+				a.focusedPanel = panelCommitList
+			} else if a.focusedPanel == panelCommitList {
+				a.focusedPanel = panelDiff
+			}
 		}
 	case key.Text == "P":
 		if a.provider == nil {

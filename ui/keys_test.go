@@ -1091,6 +1091,48 @@ func TestTabSkipsFileListWhenHidden(t *testing.T) {
 	}
 }
 
+func TestTabCyclesDescriptionPanel(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Description = "This is a review description"
+	app.showDescription = true
+	app.showFileList = false
+
+	// Tab: diff -> description (via panelCommitList)
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	if app.focusedPanel != panelCommitList {
+		t.Fatalf("after Tab with description shown, panel = %d, want panelCommitList", app.focusedPanel)
+	}
+
+	// Tab: description -> diff
+	app = sendKeys(app, keySpecial(tea.KeyTab))
+	if app.focusedPanel != panelDiff {
+		t.Fatalf("after second Tab, panel = %d, want panelDiff", app.focusedPanel)
+	}
+}
+
+func TestToggleDescriptionFocusesPanel(t *testing.T) {
+	app := newTestApp(t)
+	app.session.Description = "This is a review description"
+
+	// Press D to show description — should focus the description panel
+	app = sendKeys(app, upperKey('d', 'D'))
+	if !app.showDescription {
+		t.Fatal("expected showDescription to be true")
+	}
+	if app.focusedPanel != panelCommitList {
+		t.Fatalf("after D, panel = %d, want panelCommitList", app.focusedPanel)
+	}
+
+	// Press D again to hide description — should move focus to diff
+	app = sendKeys(app, upperKey('d', 'D'))
+	if app.showDescription {
+		t.Fatal("expected showDescription to be false")
+	}
+	if app.focusedPanel != panelDiff {
+		t.Fatalf("after second D, panel = %d, want panelDiff", app.focusedPanel)
+	}
+}
+
 // --- Half/full page navigation ---
 
 func TestCtrlDU(t *testing.T) {

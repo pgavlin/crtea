@@ -640,6 +640,11 @@ func (a *App) commitListHeight() int {
 	return a.topPanelHeight()
 }
 
+// hasTopPanel returns true if the top panel (commit list or description) is visible.
+func (a *App) hasTopPanel() bool {
+	return a.topPanelHeight() > 0
+}
+
 // descriptionLineCount returns the number of wrapped lines in the description.
 func (a *App) descriptionLineCount() int {
 	if a.session == nil || a.session.Description == "" {
