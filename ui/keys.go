@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -15,15 +16,35 @@ import (
 	"github.com/pgavlin/crtea/vcs"
 )
 
+// prevRune returns the size of the rune ending at byte position pos in buf.
+func prevRuneSize(buf string, pos int) int {
+	_, size := utf8.DecodeLastRuneInString(buf[:pos])
+	return size
+}
+
+// nextRuneSize returns the size of the rune starting at byte position pos in buf.
+func nextRuneSize(buf string, pos int) int {
+	_, size := utf8.DecodeRuneInString(buf[pos:])
+	return size
+}
+
 // wordBack returns the cursor position after moving one word backward.
 func wordBack(buf string, cursor int) int {
 	// Skip whitespace/punctuation, then skip word characters.
 	i := cursor
-	for i > 0 && !isWordChar(buf[i-1]) {
-		i--
+	for i > 0 {
+		r, size := utf8.DecodeLastRuneInString(buf[:i])
+		if isWordRune(r) {
+			break
+		}
+		i -= size
 	}
-	for i > 0 && isWordChar(buf[i-1]) {
-		i--
+	for i > 0 {
+		r, size := utf8.DecodeLastRuneInString(buf[:i])
+		if !isWordRune(r) {
+			break
+		}
+		i -= size
 	}
 	return i
 }
@@ -32,17 +53,25 @@ func wordBack(buf string, cursor int) int {
 func wordForward(buf string, cursor int) int {
 	n := len(buf)
 	i := cursor
-	for i < n && !isWordChar(buf[i]) {
-		i++
+	for i < n {
+		r, size := utf8.DecodeRuneInString(buf[i:])
+		if isWordRune(r) {
+			break
+		}
+		i += size
 	}
-	for i < n && isWordChar(buf[i]) {
-		i++
+	for i < n {
+		r, size := utf8.DecodeRuneInString(buf[i:])
+		if !isWordRune(r) {
+			break
+		}
+		i += size
 	}
 	return i
 }
 
-func isWordChar(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
+func isWordRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
 }
 
 // handleTextInput handles common text editing keys (backspace, shift-enter newline,
@@ -55,23 +84,25 @@ func handleTextInput(key tea.Key, buffer *string, cursor *int) bool {
 		return true
 	case key.Code == tea.KeyBackspace:
 		if *cursor > 0 {
-			*buffer = (*buffer)[:*cursor-1] + (*buffer)[*cursor:]
-			*cursor--
+			size := prevRuneSize(*buffer, *cursor)
+			*buffer = (*buffer)[:*cursor-size] + (*buffer)[*cursor:]
+			*cursor -= size
 		}
 		return true
 	case key.Code == tea.KeyDelete, key.Code == 'd' && key.Mod == tea.ModCtrl:
 		if *cursor < len(*buffer) {
-			*buffer = (*buffer)[:*cursor] + (*buffer)[*cursor+1:]
+			size := nextRuneSize(*buffer, *cursor)
+			*buffer = (*buffer)[:*cursor] + (*buffer)[*cursor+size:]
 		}
 		return true
 	case key.Code == tea.KeyLeft:
 		if *cursor > 0 {
-			*cursor--
+			*cursor -= prevRuneSize(*buffer, *cursor)
 		}
 		return true
 	case key.Code == tea.KeyRight:
 		if *cursor < len(*buffer) {
-			*cursor++
+			*cursor += nextRuneSize(*buffer, *cursor)
 		}
 		return true
 	case key.Code == 'b' && key.Mod == tea.ModAlt:
@@ -442,7 +473,8 @@ func (a App) handleCommandKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 		return a, cmd
 	case key.Code == tea.KeyBackspace:
 		if len(a.commandBuffer) > 0 {
-			a.commandBuffer = a.commandBuffer[:len(a.commandBuffer)-1]
+			_, size := utf8.DecodeLastRuneInString(a.commandBuffer)
+			a.commandBuffer = a.commandBuffer[:len(a.commandBuffer)-size]
 		} else {
 			a.inputMode = modeNormal
 		}
@@ -467,7 +499,8 @@ func (a App) handleSearchKey(msg tea.KeyPressMsg) (App, tea.Cmd) {
 		a.searchNext(true)
 	case key.Code == tea.KeyBackspace:
 		if len(a.searchBuffer) > 0 {
-			a.searchBuffer = a.searchBuffer[:len(a.searchBuffer)-1]
+			_, size := utf8.DecodeLastRuneInString(a.searchBuffer)
+			a.searchBuffer = a.searchBuffer[:len(a.searchBuffer)-size]
 		} else {
 			a.inputMode = modeNormal
 		}

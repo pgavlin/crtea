@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 
@@ -1275,29 +1276,38 @@ func (a *App) renderCommentEditor(width int) []string {
 	// Wrap the buffer content, highlighting cursor cell
 	buf := a.commentBuffer
 	cursor := a.commentCursor
-	// Highlight the character under the cursor using reverse video
-	var display string
-	if cursor < len(buf) {
-		before := buf[:cursor]
-		ch := string(buf[cursor])
-		after := buf[cursor+1:]
-		display = before + "\x1b[7m" + ch + "\x1b[27m" + after
-	} else {
-		display = buf + "\x1b[7m \x1b[27m"
-	}
-
 	wrapWidth := innerWidth
 	if wrapWidth < 10 {
 		wrapWidth = 0
 	}
-	wrapped := wrapComment(display, wrapWidth)
+	wrapped := wrapComment(buf, wrapWidth)
 	if len(wrapped) == 0 {
-		wrapped = []string{"\x1b[7m \x1b[27m"}
+		wrapped = []string{""}
 	}
 
+	// Find which wrapped line contains the cursor and highlight the character
+	cursorRendered := false
+	bytePos := 0
 	for _, wl := range wrapped {
-		inner := truncateOrPad(wl, innerWidth)
+		lineEnd := bytePos + len(wl)
+		var inner string
+		if !cursorRendered && cursor >= bytePos && cursor <= lineEnd {
+			cursorRendered = true
+			col := cursor - bytePos
+			if col < len(wl) {
+				_, runeSize := utf8.DecodeRuneInString(wl[col:])
+				before := wl[:col]
+				ch := wl[col : col+runeSize]
+				after := wl[col+runeSize:]
+				inner = truncateOrPad(before+"\x1b[7m"+ch+"\x1b[27m"+after, innerWidth)
+			} else {
+				inner = truncateOrPad(wl+"\x1b[7m \x1b[27m", innerWidth)
+			}
+		} else {
+			inner = truncateOrPad(wl, innerWidth)
+		}
 		lines = append(lines, gutter+borderStyle.Render("│")+" "+contentStyle.Render(inner)+" "+borderStyle.Render("│"))
+		bytePos = lineEnd + 1 // +1 for the space or newline consumed by wrapping
 	}
 
 	// Bottom border
@@ -1328,51 +1338,65 @@ func (a *App) renderEditorBoxFull(width, height int, borderColor color.Color, bu
 	var lines []string
 	lines = append(lines, borderStyle.Render("╭")+header+borderStyle.Render(strings.Repeat("─", restWidth)+"╮"))
 
-	// Content lines with cursor - highlight the cell under cursor
-	var display string
-	if cursor < len(buf) {
-		before := buf[:cursor]
-		ch := string(buf[cursor])
-		after := buf[cursor+1:]
-		display = before + "\x1b[7m" + ch + "\x1b[27m" + after
-	} else {
-		display = buf + "\x1b[7m \x1b[27m"
-	}
-
 	wrapWidth := innerWidth
 	if wrapWidth < 10 {
 		wrapWidth = 0
 	}
-	wrapped := wrapComment(display, wrapWidth)
+	wrapped := wrapComment(buf, wrapWidth)
 	if len(wrapped) == 0 {
-		wrapped = []string{"\x1b[7m \x1b[27m"}
+		wrapped = []string{""}
 	}
 
 	contentStyle := lipgloss.NewStyle().Foreground(th.FgPrimary)
 	maxContentLines := height - 2 // top + bottom border
 
-	// Find the wrapped line containing the cursor by wrapping the text up
-	// to the cursor position and counting the resulting lines.
-	textBeforeCursor := buf
-	if cursor < len(buf) {
-		textBeforeCursor = buf[:cursor]
+	// Find which wrapped line contains the cursor and highlight the character.
+	// Also compute scroll offset to keep cursor visible.
+	cursorRendered := false
+	cursorLineIdx := 0
+	bytePos := 0
+	for i, wl := range wrapped {
+		lineEnd := bytePos + len(wl)
+		if !cursorRendered && cursor >= bytePos && cursor <= lineEnd {
+			cursorRendered = true
+			cursorLineIdx = i
+		}
+		bytePos = lineEnd + 1
 	}
-	cursorLine := len(wrapComment(textBeforeCursor, wrapWidth)) - 1
-	if cursorLine < 0 {
-		cursorLine = 0
-	}
+
 	scrollOffset := 0
-	if cursorLine >= maxContentLines {
-		scrollOffset = cursorLine - maxContentLines + 1
+	if cursorLineIdx >= maxContentLines {
+		scrollOffset = cursorLineIdx - maxContentLines + 1
 	}
 
 	end := scrollOffset + maxContentLines
 	if end > len(wrapped) {
 		end = len(wrapped)
 	}
+
+	bytePos = 0
+	for i := 0; i < scrollOffset && i < len(wrapped); i++ {
+		bytePos += len(wrapped[i]) + 1
+	}
 	for _, wl := range wrapped[scrollOffset:end] {
-		inner := truncateOrPad(wl, innerWidth)
+		lineEnd := bytePos + len(wl)
+		var inner string
+		if cursor >= bytePos && cursor <= lineEnd {
+			col := cursor - bytePos
+			if col < len(wl) {
+				_, runeSize := utf8.DecodeRuneInString(wl[col:])
+				before := wl[:col]
+				ch := wl[col : col+runeSize]
+				after := wl[col+runeSize:]
+				inner = truncateOrPad(before+"\x1b[7m"+ch+"\x1b[27m"+after, innerWidth)
+			} else {
+				inner = truncateOrPad(wl+"\x1b[7m \x1b[27m", innerWidth)
+			}
+		} else {
+			inner = truncateOrPad(wl, innerWidth)
+		}
 		lines = append(lines, borderStyle.Render("│")+" "+contentStyle.Render(inner)+" "+borderStyle.Render("│"))
+		bytePos = lineEnd + 1
 	}
 
 	// Pad to fill remaining height

@@ -730,6 +730,29 @@ func TestRenderCommentEditorCursorMidText(t *testing.T) {
 	}
 }
 
+func TestRenderCommentEditorCursorMultibyte(t *testing.T) {
+	app := newTestApp(t)
+	app.commentBuffer = "café world"
+	app.commentCursor = 3 // cursor on 'é' (2-byte UTF-8 character at bytes 3-4)
+	app.commentType = model.CommentNote
+	app.inputMode = modeComment
+
+	lines := app.renderCommentEditor(80)
+	joined := strings.Join(lines, "\n")
+
+	// The multi-byte character 'é' should be highlighted as a whole rune
+	if !strings.Contains(joined, "\x1b[7mé\x1b[27m") {
+		t.Error("cursor should highlight the full multi-byte character with reverse video")
+	}
+	// Text before and after cursor should be intact
+	if !strings.Contains(joined, "caf") {
+		t.Error("text before cursor should be present")
+	}
+	if !strings.Contains(joined, "world") {
+		t.Error("text after cursor should be present")
+	}
+}
+
 func TestRenderCommentEditorNarrow(t *testing.T) {
 	app := newTestApp(t)
 	app.commentBuffer = "x"

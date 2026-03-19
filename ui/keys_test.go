@@ -3404,3 +3404,52 @@ func TestRefreshClearsOutdatedStatus(t *testing.T) {
 		t.Error("expected comment to no longer be outdated after refresh")
 	}
 }
+
+// --- Multi-byte character cursor movement ---
+
+func TestCursorMovementMultibyte(t *testing.T) {
+	app := newTestApp(t)
+	// Move to a diff line and enter comment mode
+	idx := findDiffLine(app, 2)
+	if idx < 0 {
+		t.Fatal("could not find diff line")
+	}
+	app.cursorLine = idx
+	app = sendKeys(app, keyPress('c'))
+	if app.inputMode != modeComment {
+		t.Fatal("expected comment mode")
+	}
+
+	// Type "café" (é is 2 bytes in UTF-8)
+	for _, ch := range "café" {
+		app = sendKeys(app, keyPress(ch))
+	}
+	if app.commentBuffer != "café" {
+		t.Fatalf("buffer = %q, want %q", app.commentBuffer, "café")
+	}
+	// Cursor should be at byte offset 5 (c=1, a=1, f=1, é=2)
+	if app.commentCursor != 5 {
+		t.Fatalf("cursor = %d, want 5", app.commentCursor)
+	}
+
+	// Press left arrow: should move back by the 2-byte 'é', not just 1 byte
+	app = sendKeys(app, keySpecial(tea.KeyLeft))
+	if app.commentCursor != 3 {
+		t.Fatalf("after left arrow, cursor = %d, want 3", app.commentCursor)
+	}
+
+	// Press right arrow: should move forward by the 2-byte 'é'
+	app = sendKeys(app, keySpecial(tea.KeyRight))
+	if app.commentCursor != 5 {
+		t.Fatalf("after right arrow, cursor = %d, want 5", app.commentCursor)
+	}
+
+	// Press backspace: should delete the full 'é' character
+	app = sendKeys(app, keySpecial(tea.KeyBackspace))
+	if app.commentBuffer != "caf" {
+		t.Fatalf("after backspace, buffer = %q, want %q", app.commentBuffer, "caf")
+	}
+	if app.commentCursor != 3 {
+		t.Fatalf("after backspace, cursor = %d, want 3", app.commentCursor)
+	}
+}
