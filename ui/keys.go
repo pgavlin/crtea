@@ -566,12 +566,19 @@ func (a *App) cursorDown(n int) {
 			}
 		} else {
 			items := a.commitListItems()
+			prev := a.commitCursor
 			a.commitCursor += n
 			if a.commitCursor >= len(items) {
 				a.commitCursor = len(items) - 1
 			}
 			if a.commitCursor < 0 {
 				a.commitCursor = 0
+			}
+			if a.commitCursor != prev {
+				a.commitBodyScroll = 0
+			} else {
+				// Cursor didn't move — scroll the commit body instead.
+				a.scrollCommitBody(n)
 			}
 		}
 		return
@@ -610,9 +617,16 @@ func (a *App) cursorUp(n int) {
 				a.descScroll = 0
 			}
 		} else {
+			prev := a.commitCursor
 			a.commitCursor -= n
 			if a.commitCursor < 0 {
 				a.commitCursor = 0
+			}
+			if a.commitCursor != prev {
+				a.commitBodyScroll = 0
+			} else {
+				// Cursor didn't move — scroll the commit body instead.
+				a.scrollCommitBody(-n)
 			}
 		}
 		return

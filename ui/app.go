@@ -90,6 +90,7 @@ type App struct {
 	enabledCommits   map[string]bool
 	includesWorkTree bool
 	commitCursor     int
+	commitBodyScroll int  // scroll offset for commit body in commit list panel
 	showDescription  bool // show description instead of commit list
 	showConversation bool // show conversation panel
 	descScroll       int  // scroll offset for description panel
@@ -654,6 +655,40 @@ func (a *App) commitListHeight() int {
 // hasTopPanel returns true if the top panel (commit list or description) is visible.
 func (a *App) hasTopPanel() bool {
 	return a.topPanelHeight() > 0
+}
+
+// scrollCommitBody scrolls the commit body by n lines (positive = down, negative = up).
+func (a *App) scrollCommitBody(n int) {
+	wrapWidth := a.width - 6
+	if wrapWidth < 10 {
+		wrapWidth = 10
+	}
+	bodyLines := a.currentCommitBodyLines(wrapWidth)
+	if len(bodyLines) == 0 {
+		return
+	}
+
+	// Calculate how many body lines are visible in the panel
+	items := a.commitListItems()
+	visibleCommitRows := len(items)
+	panelHeight := a.topPanelHeight()
+	// panel = commit rows + 1 blank + body visible + 1 separator
+	bodyVisible := panelHeight - 1 - visibleCommitRows - 1
+	if bodyVisible < 1 {
+		bodyVisible = 1
+	}
+
+	maxScroll := len(bodyLines) - bodyVisible
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	a.commitBodyScroll += n
+	if a.commitBodyScroll > maxScroll {
+		a.commitBodyScroll = maxScroll
+	}
+	if a.commitBodyScroll < 0 {
+		a.commitBodyScroll = 0
+	}
 }
 
 // currentCommitBodyLines returns the wrapped body lines for the commit at the cursor.

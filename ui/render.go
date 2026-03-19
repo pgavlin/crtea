@@ -77,9 +77,27 @@ func (a *App) renderCommitList(width, height int) string {
 	// Commit message body for the cursored commit
 	if len(bodyLines) > 0 {
 		lines = append(lines, strings.Repeat(" ", width)) // blank separator line
+
+		// Calculate visible body lines with scroll offset
+		bodyVisible := height - 1 - visibleItems - 1 // panel - separator - commit rows - blank line
+		if bodyVisible < 1 {
+			bodyVisible = 1
+		}
+		scrollStart := a.commitBodyScroll
+		if scrollStart > len(bodyLines)-bodyVisible {
+			scrollStart = len(bodyLines) - bodyVisible
+		}
+		if scrollStart < 0 {
+			scrollStart = 0
+		}
+		scrollEnd := scrollStart + bodyVisible
+		if scrollEnd > len(bodyLines) {
+			scrollEnd = len(bodyLines)
+		}
+
 		bodyStyle := lipgloss.NewStyle().Foreground(th.FgDim)
-		for _, bl := range bodyLines {
-			line := indent + bodyStyle.Render(bl)
+		for i := scrollStart; i < scrollEnd; i++ {
+			line := indent + bodyStyle.Render(bodyLines[i])
 			lines = append(lines, truncateOrPad(line, width))
 		}
 	}

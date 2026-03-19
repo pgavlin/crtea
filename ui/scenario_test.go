@@ -882,6 +882,39 @@ func TestScenarioCommitListAndDescription(t *testing.T) {
 	assertGolden(t, "commitlist_body", snapshot(app))
 }
 
+func TestScenarioCommitBodyScroll(t *testing.T) {
+	app, _, _ := newScenarioApp(t)
+
+	// Set up a commit with a long body that will exceed panel height.
+	longBody := "Line one of the commit body.\nLine two of the commit body.\nLine three of the commit body.\nLine four of the commit body.\nLine five of the commit body.\nLine six of the commit body.\nLine seven of the commit body.\nLine eight of the commit body.\nLine nine of the commit body.\nLine ten of the commit body."
+	commits := []vcs.CommitInfo{
+		{ID: "c1", ShortID: "c1abc", Summary: "Big commit", Body: longBody, Author: "alice", Time: testTime.Add(-1 * time.Hour)},
+	}
+	diffs := map[string][]model.DiffFile{"c1": app.diffFiles}
+	app.setCommits(commits, diffs)
+	app.session.Description = "Test description"
+
+	assertGolden(t, "commitlist_body_long", snapshot(app))
+
+	// Focus commit list and scroll down to see more body text.
+	app = sendKeys(app, keySpecial(tea.KeyTab)) // file list
+	app = sendKeys(app, keySpecial(tea.KeyTab)) // commit list
+
+	// Cursor is on c1 (only commit). j should scroll the body.
+	app = sendKeys(app, keyPress('j'))
+	app = sendKeys(app, keyPress('j'))
+	app = sendKeys(app, keyPress('j'))
+	assertGolden(t, "commitlist_body_scrolled", snapshot(app))
+
+	// Scroll back up.
+	app = sendKeys(app, keyPress('k'))
+	app = sendKeys(app, keyPress('k'))
+	app = sendKeys(app, keyPress('k'))
+	if app.commitBodyScroll != 0 {
+		t.Fatalf("expected body scroll 0, got %d", app.commitBodyScroll)
+	}
+}
+
 // --- Scenario 12: Clear drafts with mixed comments ---
 
 func TestScenarioClearDrafts(t *testing.T) {
