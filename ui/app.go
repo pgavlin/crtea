@@ -626,8 +626,19 @@ func (a *App) topPanelHeight() int {
 		return 0
 	}
 	h := len(items) + 1 // items + separator
-	if h > 8 {
-		h = 8
+
+	// Add space for commit message body of the cursored commit
+	wrapWidth := a.width - 6 // indent + padding
+	if wrapWidth < 10 {
+		wrapWidth = 10
+	}
+	bodyLines := a.currentCommitBodyLines(wrapWidth)
+	if len(bodyLines) > 0 {
+		h += 1 + len(bodyLines) // blank line + body lines
+	}
+
+	if h > 12 {
+		h = 12
 	}
 	return h
 }
@@ -643,6 +654,19 @@ func (a *App) commitListHeight() int {
 // hasTopPanel returns true if the top panel (commit list or description) is visible.
 func (a *App) hasTopPanel() bool {
 	return a.topPanelHeight() > 0
+}
+
+// currentCommitBodyLines returns the wrapped body lines for the commit at the cursor.
+func (a *App) currentCommitBodyLines(wrapWidth int) []string {
+	items := a.commitListItems()
+	if a.commitCursor < 0 || a.commitCursor >= len(items) {
+		return nil
+	}
+	item := items[a.commitCursor]
+	if item.isWorkingTree || item.commit.Body == "" {
+		return nil
+	}
+	return wrapText(strings.TrimSpace(item.commit.Body), wrapWidth)
 }
 
 // descriptionLineCount returns the number of wrapped lines in the description.

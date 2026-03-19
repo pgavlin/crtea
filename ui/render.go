@@ -34,8 +34,20 @@ func (a *App) renderCommitList(width, height int) string {
 
 	isFocused := a.focusedPanel == panelCommitList
 
-	// Determine visible range (last line is separator)
-	visibleItems := height - 1
+	// Calculate space for commit body
+	indent := "    "
+	bodyWrapWidth := width - lipgloss.Width(indent)
+	if bodyWrapWidth < 10 {
+		bodyWrapWidth = 10
+	}
+	bodyLines := a.currentCommitBodyLines(bodyWrapWidth)
+	bodyAreaHeight := 0
+	if len(bodyLines) > 0 {
+		bodyAreaHeight = 1 + len(bodyLines) // blank line + body lines
+	}
+
+	// Determine visible range (last line is separator, reserve space for body)
+	visibleItems := height - 1 - bodyAreaHeight
 	if visibleItems < 1 {
 		visibleItems = 1
 	}
@@ -57,9 +69,19 @@ func (a *App) renderCommitList(width, height int) string {
 		lines = append(lines, truncateOrPad(row, width))
 	}
 
-	// Pad to fill visible area
+	// Pad commit rows to fill their allocated area
 	for len(lines) < visibleItems {
 		lines = append(lines, strings.Repeat(" ", width))
+	}
+
+	// Commit message body for the cursored commit
+	if len(bodyLines) > 0 {
+		lines = append(lines, strings.Repeat(" ", width)) // blank separator line
+		bodyStyle := lipgloss.NewStyle().Foreground(th.FgDim)
+		for _, bl := range bodyLines {
+			line := indent + bodyStyle.Render(bl)
+			lines = append(lines, truncateOrPad(line, width))
+		}
 	}
 
 	// Separator line

@@ -827,8 +827,8 @@ func TestScenarioCommitListAndDescription(t *testing.T) {
 
 	// Set up commits.
 	commits := []vcs.CommitInfo{
-		{ID: "c1", ShortID: "c1abc", Summary: "Add auth handler", Author: "alice", Time: testTime.Add(-1 * time.Hour)},
-		{ID: "c2", ShortID: "c2def", Summary: "Add error wrapping", Author: "bob", Time: testTime.Add(-30 * time.Minute)},
+		{ID: "c1", ShortID: "c1abc", Summary: "Add auth handler", Body: "Introduce context-based auth handler\nfor better request lifecycle management.", Author: "alice", Time: testTime.Add(-1 * time.Hour)},
+		{ID: "c2", ShortID: "c2def", Summary: "Add error wrapping", Body: "Wrap errors with fmt.Errorf for stack traces.", Author: "bob", Time: testTime.Add(-30 * time.Minute)},
 	}
 	diffs := map[string][]model.DiffFile{
 		"c1": app.diffFiles,
@@ -876,6 +876,10 @@ func TestScenarioCommitListAndDescription(t *testing.T) {
 	if app.showDescription {
 		t.Fatal("expected commit list view")
 	}
+
+	// Verify commit body is shown for the cursor's commit (c2).
+	app = sendKeys(app, keyPress('j')) // move to c2
+	assertGolden(t, "commitlist_body", snapshot(app))
 }
 
 // --- Scenario 12: Clear drafts with mixed comments ---
